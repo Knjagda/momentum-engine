@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Data caches — never commit market data
+data/cache/
+*.parquet
+*.pkl
+
+# Secrets — NEVER commit broker keys or API tokens
+.env
+.env.*
+secrets/
+*.key
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
