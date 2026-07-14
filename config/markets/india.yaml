@@ -1,0 +1,63 @@
+# =============================================================
+# INDIA MARKET CONFIG
+# Same schema as us.yaml. Switching markets = loading this file.
+# Nothing else in the engine changes.
+# =============================================================
+
+market_id: INDIA
+name: Indian Equities (NSE)
+
+currency: INR
+currency_symbol: "₹"
+
+calendar: NSE
+
+data_adapter: yfinance
+ticker_suffix: ".NS"         # yfinance NSE convention: RELIANCE.NS, TCS.NS
+
+benchmark:
+  ticker: "^NSEI"
+  name: "Nifty 50"
+
+universes:
+  nifty50:
+    name: "Nifty 50"
+    source: static_csv
+    path: "data/universes/in_nifty50.csv"
+    survivorship_bias: true
+  nifty200:
+    name: "Nifty 200"
+    source: static_csv
+    path: "data/universes/in_nifty200.csv"
+    survivorship_bias: true
+  nifty500:
+    name: "Nifty 500"
+    source: static_csv
+    path: "data/universes/in_nifty500.csv"
+    survivorship_bias: true
+
+# India liquidity matters more: small/mid caps can be thinly traded
+liquidity:
+  min_avg_daily_value: 50000000         # in market currency (INR)
+  lookback_days: 60
+
+# ---------------------------------------------------------------
+# COST MODEL — this is why India needs its own config.
+# Indian momentum research shows ~32% MONTHLY turnover. High turnover
+# x transaction taxes = the difference between a great backtest and a
+# losing live strategy. Model this honestly.
+#
+# ⚠️ RATES CHANGE. Verify current SEBI/exchange rates before live use.
+# ---------------------------------------------------------------
+costs:
+  commission_bps: 3.0                   # discount broker, delivery
+  slippage_bps: 15.0                    # wider spreads than US, esp. mid/small cap
+  buy_extra_bps: 1.5                    # stamp duty (buy side only)
+  sell_extra_bps: 10.0                  # STT on delivery sell (~0.1%)
+  exchange_txn_bps: 0.35
+  gst_on_charges_pct: 0.18              # GST applies to brokerage + txn charges
+
+tax:
+  short_term_rate: 0.20                 # ⚠️ verify current STCG rate
+  long_term_rate: 0.125                 # ⚠️ verify current LTCG rate
+  long_term_threshold_days: 365

@@ -1,0 +1,21 @@
+# --- Core numerics ---
+pandas>=2.0
+numpy>=1.24
+
+# --- Market data (V0: free. Swap for Tiingo/Polygon later.) ---
+yfinance>=0.2.40
+
+# --- Config-driven strategies ---
+PyYAML>=6.0
+
+# --- Exchange trading calendars (supports both NYSE and NSE) ---
+pandas-market-calendars>=4.3
+
+# --- Stats / metrics ---
+scipy>=1.11
+
+# --- Testing (the no-look-ahead rule is enforced by tests) ---
+pytest>=7.4
+
+# --- Charts (equity curves) ---
+matplotlib>=3.7

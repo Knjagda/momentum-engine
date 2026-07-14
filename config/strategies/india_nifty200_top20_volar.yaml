@@ -1,0 +1,40 @@
+# =============================================================
+# SAME STRATEGY, DIFFERENT MARKET.
+# Note: only `market` and `universe` changed. The engine logic is identical.
+# This file is the proof that the "full dynamic" rule holds.
+# =============================================================
+
+strategy_id: india_nifty200_top20_volar
+name: "Nifty 200 Top-20 Volar Momentum"
+description: "The same engine, pointed at India. Costs, calendar, currency and benchmark all come from the India market config."
+
+market: india                   # -> config/markets/india.yaml
+universe: nifty200
+
+signal:
+  name: volar
+  params:
+    lookback_months: 12
+    skip_months: 1
+    vol_window_days: 126
+
+selection:
+  top_n: 20
+
+weighting:
+  method: equal
+  max_position_weight: 0.10
+
+rebalance:
+  frequency: monthly
+  day: first_trading_day
+
+overlay:
+  trend_filter:
+    enabled: true
+    benchmark_ma_days: 200
+    action_when_off: cash
+
+backtest:
+  start: "2010-01-01"
+  end: "2024-12-31"

@@ -1,0 +1,55 @@
+# =============================================================
+# US MARKET CONFIG
+# The engine reads everything from this file. No US-specific
+# constant may be hard-coded anywhere in engine/ logic.
+# =============================================================
+
+market_id: US
+name: United States Equities
+
+currency: USD
+currency_symbol: "$"
+
+# Exchange trading calendar (used to snap rebalance dates to real trading days)
+calendar: NYSE
+
+# Data
+data_adapter: yfinance
+ticker_suffix: ""            # US tickers need no suffix: AAPL, MSFT
+
+# Benchmark for all relative metrics
+benchmark:
+  ticker: "^GSPC"
+  name: "S&P 500"
+
+# Available universes for this market
+universes:
+  sp500:
+    name: "S&P 500"
+    source: static_csv                  # V0: static list. Later: point-in-time membership.
+    path: "data/universes/us_sp500.csv"
+    survivorship_bias: true             # MUST be surfaced in every backtest disclaimer
+  nasdaq100:
+    name: "Nasdaq 100"
+    source: static_csv
+    path: "data/universes/us_nasdaq100.csv"
+    survivorship_bias: true
+
+# Liquidity filter — a stock we cannot actually trade is not investable
+liquidity:
+  min_avg_daily_value: 5000000          # in market currency (USD)
+  lookback_days: 60
+
+# Cost model. Every simulated trade pays these. No exceptions.
+# NOTE: verify against your actual broker before going live.
+costs:
+  commission_bps: 0.0                   # most US retail brokers: zero commission
+  slippage_bps: 5.0                     # spread + impact estimate
+  buy_extra_bps: 0.0
+  sell_extra_bps: 0.0
+
+# Tax model — informational for V0 reporting; not applied to returns yet.
+tax:
+  short_term_rate: 0.35                 # placeholder — user-specific
+  long_term_rate: 0.15
+  long_term_threshold_days: 365

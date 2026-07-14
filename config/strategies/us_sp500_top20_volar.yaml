@@ -1,0 +1,39 @@
+# =============================================================
+# STRATEGY CONFIG — a strategy is DATA, not code.
+# This file is what the no-code strategy builder will eventually emit.
+# =============================================================
+
+strategy_id: us_sp500_top20_volar
+name: "S&P 500 Top-20 Volar Momentum"
+description: "The pitch-deck reference strategy: rank S&P 500 by volatility-adjusted momentum, hold top 20 equal-weight, rebalance monthly."
+
+market: us                      # -> config/markets/us.yaml
+universe: sp500
+
+signal:
+  name: volar                   # return / volatility
+  params:
+    lookback_months: 12
+    skip_months: 1              # skip most recent month (short-term reversal)
+    vol_window_days: 126        # ~6 months of daily returns
+
+selection:
+  top_n: 20
+
+weighting:
+  method: equal                 # equal | inverse_vol | capped
+  max_position_weight: 0.10
+
+rebalance:
+  frequency: monthly            # weekly | monthly | quarterly
+  day: first_trading_day
+
+overlay:
+  trend_filter:
+    enabled: true
+    benchmark_ma_days: 200      # invest only while benchmark > its 200d MA
+    action_when_off: cash
+
+backtest:
+  start: "2005-01-01"
+  end: "2024-12-31"
