@@ -56,6 +56,36 @@ class YFinanceAdapter(PriceAdapter):
 
         return PriceData(market=self.market, close=close, volume=volume)
 
+    def fetch_benchmark(
+        self,
+        start: date | datetime | str,
+        end: date | datetime | str,
+    ) -> pd.Series:
+        """The benchmark index. No ticker suffix -- indices are not equities."""
+        import yfinance as yf
+
+        ticker = self.market.benchmark.ticker      # raw, NOT resolve_ticker()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = yf.download(
+                tickers=[ticker],
+                start=pd.Timestamp(start),
+                end=pd.Timestamp(end),
+                auto_adjust=True,
+                progress=False,
+                group_by="column",
+            )
+
+        if raw is None or raw.empty:
+            raise RuntimeError(f"No benchmark data for {ticker}")
+
+        close = self._extract(raw, "Close", [ticker])
+        series = close.iloc[:, 0]
+        series.index = pd.to_datetime(series.index)
+        series.name = ticker
+        return series.sort_index().dropna()
+
     # -- download -----------------------------------------------------------
 
     def _download(

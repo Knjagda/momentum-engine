@@ -38,6 +38,30 @@ universes:
     path: "data/universes/us_nasdaq100.csv"
     survivorship_bias: true
 
+  # POINT-IN-TIME membership: who was ACTUALLY in the index on each date.
+  # Fixes inclusion bias -- a company only becomes available from the day it
+  # genuinely joined, rather than because we know today that it later 50x'd.
+  sp500_pit:
+    name: "S&P 500 (point-in-time)"
+    source: point_in_time
+    path: "data/universes/us_sp500_pit.csv"
+    survivorship_bias: false
+
+  sp400_pit:
+    name: "S&P 400 MidCap (point-in-time)"
+    source: point_in_time
+    path: "data/universes/us_sp400_pit.csv"
+    survivorship_bias: false
+
+  # Large + mid cap: ~900 names. The honest research universe.
+  # Micro caps are deliberately EXCLUDED until we have survivorship-free prices --
+  # we will earn that universe by buying data, not by pretending.
+  sp900_pit:
+    name: "S&P 900 Large+Mid (point-in-time)"
+    source: point_in_time
+    path: "data/universes/us_sp900_pit.csv"
+    survivorship_bias: false
+
 # Liquidity filter — a stock we cannot actually trade is not investable
 liquidity:
   min_avg_daily_value: 5000000          # in market currency (USD)

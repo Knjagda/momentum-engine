@@ -171,10 +171,215 @@ def build_nifty(list_name: str) -> pd.DataFrame:
     })
 
 
+
+
+# ---------------------------------------------------------------------------
+# POINT-IN-TIME MEMBERSHIP  (the fix for inclusion bias)
+# ---------------------------------------------------------------------------
+
+
+def build_sp400_point_in_time() -> pd.DataFrame:
+    """
+    S&P 400 MidCap, point-in-time.
+
+    Mid caps are the sweet spot for a first fundamental build: big enough that
+    they rarely go to zero and yfinance actually has their prices, small enough
+    that they are not all owned by every index fund on earth.
+    """
+    return _build_index_point_in_time(
+        url="https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+        index_name="S&P 400 MidCap",
+        min_current=300,
+    )
+
+
+def build_sp500_point_in_time() -> pd.DataFrame:
+    return _build_index_point_in_time(
+        url="https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+        index_name="S&P 500",
+        min_current=400,
+    )
+
+
+def build_sp900_point_in_time() -> pd.DataFrame:
+    """
+    S&P 500 + S&P 400 = the investable large/mid-cap universe, ~900 names.
+
+    Deliberately EXCLUDES micro caps. Not because they are uninteresting -- AAII's
+    best screen (Tiny Titans) lives there -- but because we cannot yet test them
+    honestly. yfinance has no prices for the many micro caps that delisted, so a
+    micro-cap backtest would be a survivorship fantasy. We will earn the right to
+    that universe by buying proper data, not by pretending.
+    """
+    large = build_sp500_point_in_time()
+    mid = build_sp400_point_in_time()
+
+    combined = pd.concat([large, mid], ignore_index=True)
+
+    # A company can be promoted from the S&P 400 to the S&P 500 -- it will then
+    # appear in both, with different intervals. That is correct, and we keep both.
+    return combined.sort_values(["symbol", "start_date"]).drop_duplicates(
+        subset=["symbol", "start_date", "end_date"]
+    )
+
+
+def _build_index_point_in_time(
+    url: str, index_name: str, min_current: int
+) -> pd.DataFrame:
+    """
+    Reconstruct WHO WAS IN the S&P 500 ON EACH DATE, from the index's own
+    add/remove history.
+
+    WHY THIS MATTERS -- and it is not the bias people usually name.
+
+    Everyone worries about survivorship bias: dead companies missing from the list.
+    Real, but for the S&P 500 it is not the dominant problem. The bigger one is
+    INCLUSION BIAS.
+
+    Ask how a company GETS INTO the S&P 500: by growing enormously. So if you
+    backtest 2013 using the 2026 membership list, you have handed the strategy a
+    universe pre-selected for the next decade's biggest winners -- NVDA, PLTR, APP,
+    VST, CVNA. Momentum's entire job is to find the strongest risers, and you have
+    quietly guaranteed they are all in the room before it starts looking.
+
+    That is not "we deleted the losers". It is "we guaranteed the future winners are
+    present", which is worse, because it is aimed at exactly what the strategy hunts.
+
+    This function fixes it: a stock becomes eligible only from the date it ACTUALLY
+    JOINED the index.
+
+    Output: one row per membership INTERVAL (a company can join, leave, and rejoin).
+        symbol, name, sector, start_date, end_date
+        end_date empty = still a member.
+    """
+    tables = [_flatten_columns(t) for t in _read_html_tables(url)]
+
+    # Table 1: current constituents.
+    current_tbl = next(
+        t for t in tables if _pick_column(t, ("symbol",)) and len(t) > min_current
+    )
+    sym_col = _pick_column(current_tbl, ("symbol",))
+    name_col = _pick_column(current_tbl, ("security",)) or _pick_column(current_tbl, ("name",))
+    sec_col = _pick_column(current_tbl, ("gics sector", "sector"))
+
+    current: dict[str, dict] = {}
+    for r in current_tbl.itertuples(index=False):
+        d = dict(zip(current_tbl.columns, r))
+        sym = str(d[sym_col]).strip().replace(".", "-")
+        current[sym] = {
+            "name": str(d.get(name_col, "")).strip(),
+            "sector": str(d.get(sec_col, "")).strip() if sec_col else "",
+        }
+
+    # Table 2: the change log (Date / Added Ticker / Removed Ticker).
+    changes = None
+    for t in tables:
+        cols = " ".join(t.columns).lower()
+        if "added" in cols and "removed" in cols and "date" in cols:
+            changes = t
+            break
+    if changes is None:
+        # Degrade HONESTLY: no change log means no point-in-time. Say so loudly
+        # rather than silently shipping a biased universe dressed up as a clean one.
+        print(f"     ⚠️  No add/remove change log found for {index_name}.")
+        print("         Falling back to a CURRENT snapshot — INCLUSION BIAS REMAINS.")
+        out = pd.DataFrame({
+            "symbol": list(current),
+            "name": [v["name"] for v in current.values()],
+            "sector": [v["sector"] for v in current.values()],
+            "start_date": "",
+            "end_date": "",
+        })
+        return out.sort_values("symbol")
+
+    date_col = _pick_column(changes, ("date",))
+    add_col = next((c for c in changes.columns if "added" in c.lower() and "ticker" in c.lower()), None)
+    rem_col = next((c for c in changes.columns if "removed" in c.lower() and "ticker" in c.lower()), None)
+    add_name = next((c for c in changes.columns if "added" in c.lower() and "security" in c.lower()), None)
+    rem_name = next((c for c in changes.columns if "removed" in c.lower() and "security" in c.lower()), None)
+
+    if not (date_col and add_col and rem_col):
+        raise LookupError(f"Change log columns not recognised: {list(changes.columns)}")
+
+    events = []
+    for r in changes.itertuples(index=False):
+        d = dict(zip(changes.columns, r))
+        when = pd.to_datetime(str(d[date_col]), errors="coerce")
+        if pd.isna(when):
+            continue
+
+        added = str(d.get(add_col, "")).strip().replace(".", "-")
+        removed = str(d.get(rem_col, "")).strip().replace(".", "-")
+        added = "" if added.lower() in ("nan", "") else added
+        removed = "" if removed.lower() in ("nan", "") else removed
+
+        events.append({
+            "date": when,
+            "added": added,
+            "removed": removed,
+            "added_name": str(d.get(add_name, "")).strip() if add_name else "",
+            "removed_name": str(d.get(rem_name, "")).strip() if rem_name else "",
+        })
+
+    events.sort(key=lambda e: e["date"])
+
+    # --- Step 1: walk BACKWARDS from today to find the membership at the start.
+    active = set(current)
+    for e in reversed(events):
+        if e["added"] and e["added"] in active:
+            active.discard(e["added"])       # it was not a member before it was added
+        if e["removed"]:
+            active.add(e["removed"])         # it WAS a member before it was removed
+
+    earliest = events[0]["date"] if events else pd.Timestamp("1990-01-01")
+
+    # --- Step 2: walk FORWARDS, opening and closing membership intervals.
+    names: dict[str, str] = {s: v["name"] for s, v in current.items()}
+    open_since: dict[str, pd.Timestamp] = {s: earliest for s in active}
+    intervals: list[dict] = []
+
+    for e in events:
+        if e["removed"]:
+            sym = e["removed"]
+            names.setdefault(sym, e["removed_name"])
+            start = open_since.pop(sym, earliest)
+            intervals.append({"symbol": sym, "start": start, "end": e["date"]})
+
+        if e["added"]:
+            sym = e["added"]
+            names.setdefault(sym, e["added_name"])
+            if sym not in open_since:
+                open_since[sym] = e["date"]
+
+    for sym, start in open_since.items():
+        intervals.append({"symbol": sym, "start": start, "end": pd.NaT})
+
+    # --- Sanity check: our reconstruction should end at today's actual membership.
+    reconstructed_now = {i["symbol"] for i in intervals if pd.isna(i["end"])}
+    missing = set(current) - reconstructed_now
+    extra = reconstructed_now - set(current)
+    if missing or extra:
+        print(f"     note: {index_name} drift — {len(missing)} missing, {len(extra)} extra")
+        print("     (Wikipedia's change log is incomplete for older years. Expected.)")
+
+    out = pd.DataFrame(intervals)
+    out["name"] = out["symbol"].map(lambda s: names.get(s, ""))
+    out["sector"] = out["symbol"].map(lambda s: current.get(s, {}).get("sector", ""))
+    out["start_date"] = out["start"].dt.strftime("%Y-%m-%d")
+    out["end_date"] = out["end"].dt.strftime("%Y-%m-%d").fillna("")
+
+    return out[["symbol", "name", "sector", "start_date", "end_date"]].sort_values(
+        ["symbol", "start_date"]
+    )
+
+
 # ---------------------------------------------------------------------------
 
 BUILDERS = {
     "us_sp500":     lambda: build_sp500(),
+    "us_sp500_pit": lambda: build_sp500_point_in_time(),
+    "us_sp400_pit": lambda: build_sp400_point_in_time(),
+    "us_sp900_pit": lambda: build_sp900_point_in_time(),
     "us_nasdaq100": lambda: build_nasdaq100(),
     "in_nifty50":   lambda: build_nifty("ind_nifty50list"),
     "in_nifty200":  lambda: build_nifty("ind_nifty200list"),
@@ -188,14 +393,15 @@ def write_csv(name: str, df: pd.DataFrame) -> Path:
 
     df = df.dropna(subset=["symbol"])
     df = df[df["symbol"].str.len() > 0]
-    df = df.drop_duplicates(subset=["symbol"]).sort_values("symbol")
 
-    with path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(["symbol", "name", "sector"])
-        for row in df.itertuples(index=False):
-            writer.writerow([row.symbol, row.name, row.sector])
+    # Point-in-time files have MULTIPLE rows per symbol (join, leave, rejoin),
+    # so only de-duplicate the flat snapshot files.
+    if "start_date" not in df.columns:
+        df = df.drop_duplicates(subset=["symbol"])
 
+    df = df.sort_values("symbol")
+
+    df.to_csv(path, index=False, encoding="utf-8")
     return path
 
 

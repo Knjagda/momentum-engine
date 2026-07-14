@@ -37,4 +37,5 @@ overlay:
 
 backtest:
   start: "2010-01-01"
-  end: "2024-12-31"
+  end: today          # `today` keeps the test period fresh. A hard-coded
+                      # end date silently discards your most recent data.

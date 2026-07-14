@@ -23,6 +23,61 @@ from engine.signals.base import SignalResult
 from engine.universe.universe import Membership
 
 
+def select_with_buffer(
+    signal_result: SignalResult,
+    top_n: int,
+    current_symbols: list[str],
+    exit_rank: int,
+) -> list[str]:
+    """
+    THE NO-TRADE BUFFER. The cheapest turnover reduction there is.
+
+    The naive rule -- "hold the top 20, sell anything that drops to 21" -- is
+    needlessly twitchy. A stock that slips from rank 18 to rank 22 has barely
+    changed; the signal certainly has not said anything meaningful. But the naive
+    rule sells it, pays the spread, buys a near-identical name, and pays again.
+    Do that every month and you have built a machine for donating to your broker.
+
+    The buffer separates ENTRY from EXIT:
+
+        enter  if rank <= top_n        (must be genuinely among the best)
+        hold   if rank <= exit_rank    (a wider band: still good enough to keep)
+
+    So with top_n=20, exit_rank=30: a holding that slips to 24 is KEPT. It is only
+    sold once it falls out of the top 30 -- or once it is pushed out by a better
+    name and there is no room.
+
+    Research: Calluzzo, Moneta & Topaloglu (2025), "Momentum at Long Holding
+    Periods" -- longer holding cuts costs without surrendering the signal.
+    """
+    if exit_rank < top_n:
+        raise ValueError(
+            f"exit_rank ({exit_rank}) must be >= top_n ({top_n}); "
+            f"a hold band narrower than the entry band makes no sense"
+        )
+
+    ranks = signal_result.rank()          # rank 1 = best; unscoreable are absent
+
+    # KEEP: current holdings still inside the wider hold band, best first.
+    keepers = sorted(
+        (s for s in current_symbols if s in ranks.index and ranks[s] <= exit_rank),
+        key=lambda s: ranks[s],
+    )[:top_n]
+
+    # FILL: any empty slots go to the best names we do not already hold.
+    held = set(keepers)
+    slots = top_n - len(keepers)
+
+    if slots > 0:
+        candidates = [
+            s for s in ranks.sort_values().index
+            if s not in held and ranks[s] <= top_n
+        ]
+        keepers.extend(candidates[:slots])
+
+    return sorted(keepers, key=lambda s: ranks[s])
+
+
 def build_portfolio(
     signal_result: SignalResult,
     market: Market,
@@ -32,6 +87,7 @@ def build_portfolio(
     prices: PriceData | None = None,
     max_position_weight: float | None = None,
     max_sector_weight: float | None = None,
+    preselected_symbols: list[str] | None = None,
     **weighting_kwargs,
 ) -> Portfolio:
     """
@@ -54,8 +110,13 @@ def build_portfolio(
     if top_n <= 0:
         raise ValueError(f"top_n must be positive, got {top_n}")
 
-    selected = signal_result.top(top_n)
-    symbols = list(selected.index)
+    if preselected_symbols is not None:
+        # Selection was already decided (e.g. by the no-trade buffer).
+        symbols = [s for s in preselected_symbols if s in signal_result.valid.index]
+        selected = signal_result.valid[symbols]
+    else:
+        selected = signal_result.top(top_n)
+        symbols = list(selected.index)
 
     if not symbols:
         raise ValueError(

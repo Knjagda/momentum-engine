@@ -58,3 +58,26 @@ __all__ = [
     "register_adapter",
     "registered_adapters",
 ]
+
+# -- fundamentals -----------------------------------------------------------
+from engine.data.fundamentals import (  # noqa: E402
+    FundamentalAdapter,
+    FundamentalData,
+)
+
+__all__ = list(__all__) + ["FundamentalData", "FundamentalAdapter", "get_fundamental_adapter"]
+
+
+def get_fundamental_adapter(name: str = "edgar", **kwargs) -> FundamentalAdapter:
+    """
+    Where fundamentals come from. The engine never knows which.
+
+    Today: EDGAR (free, 2010+). Tomorrow, if we pay: Sharadar (1990+, delisted).
+    Swapping is an adapter change, not an engine change.
+    """
+    key = name.lower()
+    if key == "edgar":
+        from engine.data.edgar_adapter import EdgarAdapter
+
+        return EdgarAdapter(**kwargs)
+    raise KeyError(f"Unknown fundamental adapter '{name}'. Available: ['edgar']")

@@ -106,6 +106,20 @@ class PriceAdapter(ABC):
     def __init__(self, market: Market) -> None:
         self.market = market
 
+    def fetch_benchmark(
+        self,
+        start: date | datetime | str,
+        end: date | datetime | str,
+    ) -> pd.Series:
+        """
+        Fetch the market's benchmark index.
+
+        Deliberately BYPASSES resolve_ticker: index tickers are not equities and
+        must not receive the exchange suffix. Resolving "^NSEI" would produce
+        "^NSEI.NS", which does not exist.
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def fetch(
         self,
