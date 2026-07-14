@@ -1,6 +1,7 @@
 """Portfolio construction: ranking -> positions -> weights -> guardrails."""
 
 from engine.portfolio.construction import build_portfolio
+from engine.portfolio.drift import drift_weights, drifted_cash_weight
 from engine.portfolio.portfolio import Portfolio, Position, cash_portfolio
 from engine.portfolio.weighting import (
     cap_position_weights,
@@ -16,6 +17,8 @@ __all__ = [
     "Position",
     "cash_portfolio",
     "build_portfolio",
+    "drift_weights",
+    "drifted_cash_weight",
     "equal_weight",
     "inverse_vol_weight",
     "get_weighting",
