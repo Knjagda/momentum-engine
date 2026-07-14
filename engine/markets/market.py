@@ -127,6 +127,7 @@ class Market:
     currency: str
     currency_symbol: str
     calendar: str
+    trading_days_per_year: int
     data_adapter: str
     ticker_suffix: str
     benchmark: Benchmark
@@ -238,6 +239,7 @@ def _build_market(raw: dict[str, Any]) -> Market:
         currency=raw["currency"],
         currency_symbol=raw.get("currency_symbol", ""),
         calendar=raw["calendar"],
+        trading_days_per_year=int(raw.get("trading_days_per_year", 252)),
         data_adapter=raw.get("data_adapter", "yfinance"),
         ticker_suffix=raw.get("ticker_suffix", ""),
         benchmark=Benchmark(

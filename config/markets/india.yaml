@@ -12,6 +12,9 @@ currency_symbol: "₹"
 
 calendar: NSE
 
+# NSE has slightly fewer sessions than NYSE (more public holidays).
+trading_days_per_year: 250
+
 data_adapter: yfinance
 ticker_suffix: ".NS"         # yfinance NSE convention: RELIANCE.NS, TCS.NS
 
