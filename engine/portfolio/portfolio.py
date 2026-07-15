@@ -61,6 +61,41 @@ class Portfolio:
     def invested_weight(self) -> float:
         return float(sum(p.weight for p in self.positions))
 
+    @property
+    def is_cash(self) -> bool:
+        """True if this portfolio holds nothing -- fully in cash."""
+        return self.n_positions == 0 or self.invested_weight <= 1e-9
+
+    def with_weights(self, new_weights: pd.Series, cash_reason: str = "rescaled") -> "Portfolio":
+        """
+        A copy of this portfolio with weights replaced (e.g. after vol-target
+        scaling). Names, scores, ranks and sectors are preserved; only the sizing
+        changes, and the freed-up weight becomes cash.
+
+        Used by volatility targeting to hold the SAME names at reduced exposure --
+        stock selection and risk sizing stay cleanly separate (SPEC §5).
+        """
+        invested = float(new_weights.sum())
+        new_positions = [
+            Position(
+                symbol=p.symbol,
+                weight=float(new_weights.get(p.symbol, 0.0)),
+                score=p.score,
+                rank=p.rank,
+                sector=p.sector,
+            )
+            for p in self.positions
+            if new_weights.get(p.symbol, 0.0) > 0
+        ]
+        return Portfolio(
+            market_id=self.market_id,
+            currency=self.currency,
+            as_of=self.as_of,
+            positions=new_positions,
+            cash_weight=max(0.0, 1.0 - invested),
+            metadata={**self.metadata, "rescaled": cash_reason, "exposure": invested},
+        )
+
     def sector_weights(self) -> pd.Series:
         """
         Exposure by sector.

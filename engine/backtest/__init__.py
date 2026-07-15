@@ -15,6 +15,11 @@ from engine.backtest.overlay import (
     get_overlay,
     registered_overlays,
 )
+from engine.backtest.vol_target import (
+    VolatilityTarget,
+    VolTargetDecision,
+    apply_exposure,
+)
 
 __all__ = [
     "run_backtest",
@@ -29,4 +34,7 @@ __all__ = [
     "AbsoluteMomentum",
     "get_overlay",
     "registered_overlays",
+    "VolatilityTarget",
+    "VolTargetDecision",
+    "apply_exposure",
 ]

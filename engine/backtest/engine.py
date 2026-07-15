@@ -28,6 +28,7 @@ import pandas as pd
 
 from engine.backtest.calendar import periods_per_year
 from engine.backtest.overlay import AlwaysOn, Overlay, OverlayDecision
+from engine.backtest.vol_target import VolatilityTarget, apply_exposure
 from engine.costs import TradeList, compute_trades
 from engine.data.base import PriceData
 from engine.markets.market import Market
@@ -64,6 +65,7 @@ class BacktestResult:
     portfolios: list[Portfolio] = field(default_factory=list)
     trades: list[TradeList] = field(default_factory=list)
     decisions: list[OverlayDecision] = field(default_factory=list)
+    vol_decisions: list = field(default_factory=list)
 
     disclaimers: list[str] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
@@ -109,6 +111,7 @@ def run_backtest(
     benchmark: pd.Series | None = None,
     min_trade_weight: float = 0.0005,
     exit_rank: int | None = None,
+    vol_target: VolatilityTarget | None = None,
     initial_capital: float = 1.0,
 ) -> BacktestResult:
     """
@@ -131,6 +134,7 @@ def run_backtest(
     portfolios: list[Portfolio] = []
     trade_lists: list[TradeList] = []
     decisions: list[OverlayDecision] = []
+    vol_decisions: list = []
 
     dates = pd.DatetimeIndex(rebalance_dates).sort_values()
 
@@ -198,6 +202,20 @@ def run_backtest(
 
         portfolios.append(target)
 
+        # ---- 3b. Volatility targeting: scale the WHOLE book toward cash if the
+        # strategy's own recent returns have been dangerous. Uses only returns
+        # earned BEFORE this date -- no look-ahead. (Barroso & Santa-Clara 2015)
+        exposure = 1.0
+        if vol_target is not None and not target.is_cash:
+            so_far = pd.Series(rets, dtype=float)      # strategy returns to date
+            decision = vol_target.decide(so_far)
+            exposure = decision.exposure
+            vol_decisions.append(decision)
+
+            if exposure < 1.0:
+                scaled = apply_exposure(target.weights, exposure)
+                target = target.with_weights(scaled, cash_reason="vol_target")
+
         # ---- 4-5. Trade the difference, and PAY (SPEC §4.3) -----------------
         trades = compute_trades(
             current_weights=current_weights,
@@ -244,6 +262,7 @@ def run_backtest(
         portfolios=portfolios,
         trades=trade_lists,
         decisions=decisions,
+        vol_decisions=vol_decisions,
         config={
             "signal": signal.name,
             "signal_params": dict(signal.params),
@@ -254,6 +273,7 @@ def run_backtest(
             "max_position_weight": max_position_weight,
             "max_sector_weight": max_sector_weight,
             "exit_rank": exit_rank,
+            "vol_target": vol_target.target_vol if vol_target is not None else None,
             "universe": membership.universe_key,
             "universe_size": len(membership),
         },

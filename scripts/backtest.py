@@ -74,6 +74,7 @@ def main() -> None:
     top_n = cfg["selection"]["top_n"]
     weighting = cfg["weighting"]["method"]
     max_pos = cfg["weighting"].get("max_position_weight")
+    max_sector = cfg["weighting"].get("max_sector_weight")   # was silently ignored before
     frequency = cfg["rebalance"]["frequency"]
 
     start = resolve_date(cfg["backtest"]["start"])
@@ -120,6 +121,7 @@ def main() -> None:
         frequency=frequency,
         weighting=weighting,
         max_position_weight=max_pos,
+        max_sector_weight=max_sector,
         overlay=overlay,
         benchmark=benchmark,
     )
