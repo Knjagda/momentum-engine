@@ -1,0 +1,49 @@
+# =============================================================
+# STRATEGY CONFIG — a strategy is DATA, not code.
+# This file is what the no-code strategy builder will eventually emit.
+# =============================================================
+
+strategy_id: us_sp500_top20_momentum
+name: "S&P 500 Top-20 Momentum"
+description: "Honest default: rank the POINT-IN-TIME S&P 500 by 12-2 momentum, hold top 20 equal-weight, rebalance monthly. This is the config our own signal-grid found most robust across both eras (+3.2%/+2.7% vs SPY)."
+
+market: us                      # -> config/markets/us.yaml
+universe: sp500_pit             # POINT-IN-TIME. Using the plain `sp500` (today's
+                                # list) inflates results by ~9%/yr of pure
+                                # inclusion bias -- see scripts/validate.py.
+
+signal:
+  name: momentum                # raw 12-2 total return.
+                                # Our signal grid (scripts/experiment_signal.py)
+                                # showed raw momentum beats volar in BOTH eras;
+                                # dividing by volatility was our weakest choice.
+                                # Volar remains available -- just not the default.
+  params:
+    lookback_months: 12
+    skip_months: 1              # skip most recent month (short-term reversal)
+
+selection:
+  top_n: 20
+
+weighting:
+  method: equal                 # equal | inverse_vol | capped
+  max_position_weight: 0.10
+
+rebalance:
+  frequency: monthly            # weekly | monthly | quarterly
+  day: first_trading_day
+
+overlay:
+  # HONEST TRADEOFF: the trend filter cut the 2008 drawdown from -61% to survivable,
+  # but COST 4-7%/yr in the 2013+ bull market (it whipsaws). It is left ON by default
+  # because a -61% drawdown is unholdable for real people -- but it is insurance with
+  # a real premium, not free protection. Set enabled: false to see the raw strategy.
+  trend_filter:
+    enabled: true
+    benchmark_ma_days: 200      # invest only while benchmark > its 200d MA
+    action_when_off: cash
+
+backtest:
+  start: "2005-01-01"
+  end: today          # `today` keeps the test period fresh. A hard-coded
+                      # end date silently discards your most recent data.

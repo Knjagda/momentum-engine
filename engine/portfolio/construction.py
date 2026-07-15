@@ -22,6 +22,53 @@ from engine.portfolio.weighting import (
 from engine.signals.base import SignalResult
 from engine.universe.universe import Membership
 
+# Companies with more than one share class in the index. Both tickers track the
+# same underlying business, so holding both is not diversification -- it is a
+# double bet on one company wearing a disguise. Left unchecked, GOOGL + GOOG at
+# 5% each is really a 10% position in Alphabet.
+#
+# We keep the MORE LIQUID / primary class and drop the other at selection time.
+# This lives here (not in the universe) because it is a portfolio-construction
+# decision: the universe legitimately CONTAINS both; we simply refuse to hold both.
+#
+# Note this is a US-large-cap convention. It is deliberately a plain data map, not
+# engine logic -- if India needs its own dual-listing rules later, that is another
+# map, not a rewrite. Kept conservative: only well-known, long-standing pairs.
+SHARE_CLASS_PRIMARY: dict[str, str] = {
+    "GOOG": "GOOGL",     # Alphabet: keep the voting class GOOGL, drop GOOG
+    "FOX": "FOXA",       # Fox
+    "NWS": "NWSA",       # News Corp
+    "UA": "UAA",         # Under Armour
+    "BRK.B": "BRK.B",    # Berkshire only has one relevant class here; identity
+}
+
+
+def collapse_share_classes(
+    ranked_symbols: list[str],
+    primary_map: dict[str, str] | None = None,
+) -> list[str]:
+    """
+    Remove secondary share classes, preserving rank order.
+
+    If both GOOG and GOOGL are present we keep whichever appears (they are the same
+    company); if the secondary ticker (GOOG) is present we drop it so the primary
+    (GOOGL) carries the whole position. If only the secondary is present, we keep it
+    -- refusing to hold a company just because we ranked its B-shares would be worse
+    than the disease.
+    """
+    mapping = primary_map if primary_map is not None else SHARE_CLASS_PRIMARY
+
+    present = set(ranked_symbols)
+    result: list[str] = []
+    for sym in ranked_symbols:
+        primary = mapping.get(sym)
+        # Drop this ticker only if it is a SECONDARY class AND its primary is also
+        # here to absorb the position.
+        if primary is not None and primary != sym and primary in present:
+            continue
+        result.append(sym)
+    return result
+
 
 def select_with_buffer(
     signal_result: SignalResult,
@@ -75,7 +122,11 @@ def select_with_buffer(
         ]
         keepers.extend(candidates[:slots])
 
-    return sorted(keepers, key=lambda s: ranks[s])
+    # Collapse share classes here too: without this, a buffer-driven selection can
+    # quietly reintroduce GOOG alongside GOOGL. Preserve rank order.
+    keepers = collapse_share_classes(sorted(keepers, key=lambda s: ranks[s]))
+
+    return keepers
 
 
 def build_portfolio(
@@ -115,8 +166,12 @@ def build_portfolio(
         symbols = [s for s in preselected_symbols if s in signal_result.valid.index]
         selected = signal_result.valid[symbols]
     else:
-        selected = signal_result.top(top_n)
-        symbols = list(selected.index)
+        # Take a few extra names before collapsing share classes, so dropping GOOG
+        # (a duplicate of GOOGL) does not silently leave us holding only top_n-1.
+        ranked = list(signal_result.rank().sort_values().index)
+        deduped = collapse_share_classes(ranked)
+        symbols = deduped[:top_n]
+        selected = signal_result.valid[symbols]
 
     if not symbols:
         raise ValueError(

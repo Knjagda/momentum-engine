@@ -2,7 +2,7 @@
 Run a real backtest from a strategy config file.
 
     python -m scripts.backtest                                  # the US default
-    python -m scripts.backtest india_nifty200_top20_volar       # the same engine, India
+    python -m scripts.backtest india_nifty200_top20_momentum       # the same engine, India
 
 The strategy is a YAML FILE, not code. That is the thing that eventually becomes
 the no-code strategy builder in the pitch deck: this script is already the engine
@@ -27,7 +27,7 @@ from engine.universe.universe import load_membership
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_DIR = REPO_ROOT / "config" / "strategies"
 
-DEFAULT_STRATEGY = "us_sp500_top20_volar"
+DEFAULT_STRATEGY = "us_sp500_top20_momentum"
 
 
 def resolve_date(value, default_today: bool = False) -> str:

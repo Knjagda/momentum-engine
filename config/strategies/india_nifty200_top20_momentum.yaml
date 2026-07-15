@@ -9,10 +9,14 @@ name: "Nifty 200 Top-20 Volar Momentum"
 description: "The same engine, pointed at India. Costs, calendar, currency and benchmark all come from the India market config."
 
 market: india                   # -> config/markets/india.yaml
-universe: nifty200
+universe: nifty200             # ⚠️ NOT point-in-time yet. Indian index history
+                                # needs a separate source; until then these results
+                                # carry the same inclusion bias we removed for the US.
 
 signal:
-  name: volar
+  name: momentum                # matches the US default; raw momentum beat volar
+                                # in our US tests. NOT yet re-validated on India
+                                # data -- treat as a starting point, not a finding.
   params:
     lookback_months: 12
     skip_months: 1
