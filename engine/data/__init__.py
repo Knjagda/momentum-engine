@@ -51,6 +51,15 @@ def _make_yfinance(market: Market, **kwargs) -> PriceAdapter:
 
 register_adapter("yfinance", _make_yfinance)
 
+
+def _make_tiingo(market: Market, **kwargs) -> PriceAdapter:
+    from engine.data.tiingo_adapter import TiingoAdapter
+
+    return TiingoAdapter(market, **kwargs)
+
+
+register_adapter("tiingo", _make_tiingo)
+
 __all__ = [
     "PriceAdapter",
     "PriceData",
