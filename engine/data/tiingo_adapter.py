@@ -120,7 +120,7 @@ class TiingoAdapter(PriceAdapter):
         cache = self._cache_path(ticker)
         if self.use_cache and cache.exists():
             try:
-                combined = pd.read_parquet(cache)
+                combined = pd.read_csv(cache, index_col=0, parse_dates=True)
                 return combined["close"].dropna(), combined["volume"].dropna()
             except Exception:
                 pass  # fall through to refetch if the cache file is unreadable
@@ -147,12 +147,12 @@ class TiingoAdapter(PriceAdapter):
     def _cache_path(self, ticker: str) -> Path:
         folder = CACHE_DIR / self.market.market_id.lower()
         folder.mkdir(parents=True, exist_ok=True)
-        return folder / f"{ticker.upper()}.parquet"
+        return folder / f"{ticker.upper()}.csv"
 
     @staticmethod
     def _write_cache(path: Path, close: pd.Series, volume: pd.Series) -> None:
         combined = pd.DataFrame({"close": close, "volume": volume})
-        try:
-            combined.to_parquet(path)
-        except Exception:  # parquet engine missing -- caching is a nicety
-            pass
+        # CSV needs NO optional library (unlike parquet). The cache is the whole point
+        # of resumability, so a write failure must be LOUD, not silently swallowed --
+        # a silent failure here means the pull can never resume and re-fetches forever.
+        combined.to_csv(path)

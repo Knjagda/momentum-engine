@@ -79,17 +79,8 @@ def test_uses_adjusted_close(adapter):
 def test_per_ticker_cache_avoids_refetch(adapter, monkeypatch):
     """
     Second fetch of the same ticker reads cache -- fetch_raw not called again.
-    Caching depends on a parquet engine (pyarrow/fastparquet); if none is installed,
-    caching is a documented no-op, so we skip rather than assert.
+    Cache is CSV (no optional library), so this always works -- no skip needed.
     """
-    try:
-        import pyarrow  # noqa: F401
-    except ImportError:
-        try:
-            import fastparquet  # noqa: F401
-        except ImportError:
-            pytest.skip("no parquet engine; caching is a documented nicety, not required")
-
     calls = {"n": 0}
     import engine.data.tiingo_adapter as mod
     orig = _fake_raw
@@ -102,6 +93,15 @@ def test_per_ticker_cache_avoids_refetch(adapter, monkeypatch):
     first = calls["n"]
     adapter.fetch(["AAPL"], "2023-01-01", "2023-12-31")   # should hit cache
     assert calls["n"] == first, "second fetch should use cache, not refetch"
+
+
+def test_cache_roundtrip_preserves_values(adapter):
+    """Data read back from the CSV cache matches what was fetched."""
+    first = adapter.fetch(["AAPL"], "2023-01-01", "2023-12-31")
+    second = adapter.fetch(["AAPL"], "2023-01-01", "2023-12-31")   # from cache
+    pd.testing.assert_series_equal(
+        first.close["AAPL"], second.close["AAPL"], check_freq=False
+    )
 
 
 def test_factory_builds_tiingo():
