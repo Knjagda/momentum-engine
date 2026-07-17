@@ -25,4 +25,4 @@ secrets/
 .vscode/
 
 # Generated data — rebuild from scripts, never commit
-data/
+/data/
