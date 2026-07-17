@@ -80,4 +80,8 @@ def get_fundamental_adapter(name: str = "edgar", **kwargs) -> FundamentalAdapter
         from engine.data.edgar_adapter import EdgarAdapter
 
         return EdgarAdapter(**kwargs)
-    raise KeyError(f"Unknown fundamental adapter '{name}'. Available: ['edgar']")
+    if key == "sec_bulk":
+        from engine.data.sec_bulk_adapter import SecBulkAdapter
+
+        return SecBulkAdapter(**kwargs)
+    raise KeyError(f"Unknown fundamental adapter '{name}'. Available: ['edgar', 'sec_bulk']")
