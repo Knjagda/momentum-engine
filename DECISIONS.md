@@ -5,6 +5,50 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2025 — Value gate not adopted; survivorship-free PRICES are now the binding constraint
+
+**Decision.** The value screen (positive earnings AND price-to-book ≤ median) is **not
+adopted as a default**. It remains available as an optional screen, but it does not earn
+a place in the standard pipeline.
+
+**Evidence.** Re-ran the value experiment on the *corrected* equity data (after the
+tag-priority fix that fixed book values for ~100 names), `sp900_pit`, 2010+:
+
+| config | CAGR | vs SPY | max DD | Sharpe | Sortino |
+|---|---|---|---|---|---|
+| momentum only | 23.87% | +8.74% | −36.9% | 0.84 | 1.61 |
+| momentum + value | 17.47% | +2.34% | −37.4% | 0.89 | 1.13 |
+
+The value gate **cut CAGR by 6.4%**, nudged Sharpe up marginally (0.84→0.89), did **not**
+improve drawdown (slightly worse), and **cut Sortino** (1.61→1.13). Clean fundamentals
+did not rescue value — the earlier "inconclusive" now reads "not worth it, on this data."
+
+**The bigger finding — survivorship-free prices are now the weakest link.** This run
+made the price-side hole vivid: **410 of 1606 universe names (~25%) could not be priced
+by yfinance** — every delisted company, including LEH, SIVB, FRC, FNM/FRE, CFC, CELG,
+ATVI, XLNX, WFM, HNZ. The point-in-time universe *correctly includes* these (that part
+works); yfinance simply cannot price a dead ticker. So every backtest silently runs on
+survivors only.
+
+This biases the value result **specifically and in the flattering direction**: a value
+gate buys cheap stocks, and dying companies get cheap right before zero (SIVB, FRC, LEH
+were all "cheap by P/B" shortly before collapse). The value portfolio would have bought
+them; we can't price the collapse; so the value line **never takes those losses**. The
+value CAGR above is therefore optimistic by an unknown amount. Momentum-only is cleaner
+(momentum sells falling names) but still misses all 410.
+
+**Consequence.** No fundamentals work can fix this — it is a *price data* problem. After
+several sessions making fundamentals trustworthy, PRICES are now the binding constraint
+on backtest honesty. Every excess-return number (incl. momentum's +8.74%) is inflated by
+an unknown survivorship amount.
+
+**Revisit / next lever:** buy survivorship-free price data (Sharadar ~$50 one-month pull,
+or Norgate) so dead tickers get priced through their decline. That single step would make
+every backtest honest and would let us re-judge value on data that includes the failures
+it would have bought. Until then, all excess-return figures carry a stated upward bias.
+
+---
+
 ## 2025 — Fundamentals source: keep EDGAR default, retain SEC bulk as validated alternative
 
 **Decision.** The engine's default fundamentals adapter stays **per-company EDGAR**
