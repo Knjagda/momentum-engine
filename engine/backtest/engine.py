@@ -112,6 +112,8 @@ def run_backtest(
     min_trade_weight: float = 0.0005,
     exit_rank: int | None = None,
     vol_target: VolatilityTarget | None = None,
+    screen=None,
+    fundamentals=None,
     initial_capital: float = 1.0,
 ) -> BacktestResult:
     """
@@ -168,37 +170,61 @@ def run_backtest(
                     market.market_id, market.currency, d, reason="no_eligible_securities"
                 )
             else:
-                scores = signal.compute(prices, d, symbols=snapshot.eligible)
+                eligible = snapshot.eligible
 
-                if len(scores.valid) == 0:
+                # FUNDAMENTAL SCREEN (optional): narrow to names that pass a value/
+                # quality rule BEFORE momentum ranks them. Point-in-time inside.
+                # "Cheap AND rising" -- the momentum+value thesis, as a gate.
+                screen_reason = None
+                if screen is not None and fundamentals is not None:
+                    from engine.signals.fundamentals_metrics import compute_fundamental_metrics
+                    metrics = compute_fundamental_metrics(prices, fundamentals, eligible, d)
+                    screen_result = screen.apply(metrics, d)
+                    if screen_result.passed:
+                        eligible = screen_result.passed
+                    else:
+                        # Nobody passed (or no fundamental coverage yet) -> cash,
+                        # rather than silently falling back to the unscreened universe.
+                        eligible = []
+                        screen_reason = "no_securities_passed_screen"
+
+                if not eligible:
                     target = cash_portfolio(
-                        market.market_id, market.currency, d, reason="no_scoreable_securities"
+                        market.market_id, market.currency, d,
+                        reason=screen_reason or "no_eligible_securities",
                     )
                 else:
-                    # THE BUFFER: keep names that are still good enough, rather than
-                    # selling anything that slipped one rank. Cuts turnover hard.
-                    preselected = (
-                        select_with_buffer(
-                            signal_result=scores,
-                            top_n=top_n,
-                            current_symbols=list(current_weights.index),
-                            exit_rank=exit_rank,
-                        )
-                        if exit_rank is not None
-                        else None
-                    )
+                    scores = signal.compute(prices, d, symbols=eligible)
 
-                    target = build_portfolio(
-                        signal_result=scores,
-                        market=market,
-                        top_n=top_n,
-                        weighting=weighting,
-                        membership=membership,
-                        prices=prices,
-                        max_position_weight=max_position_weight,
-                        max_sector_weight=max_sector_weight,
-                        preselected_symbols=preselected,
-                    )
+                    if len(scores.valid) == 0:
+                        target = cash_portfolio(
+                            market.market_id, market.currency, d, reason="no_scoreable_securities"
+                        )
+                    else:
+                        # THE BUFFER: keep names that are still good enough, rather than
+                        # selling anything that slipped one rank. Cuts turnover hard.
+                        preselected = (
+                            select_with_buffer(
+                                signal_result=scores,
+                                top_n=top_n,
+                                current_symbols=list(current_weights.index),
+                                exit_rank=exit_rank,
+                            )
+                            if exit_rank is not None
+                            else None
+                        )
+
+                        target = build_portfolio(
+                            signal_result=scores,
+                            market=market,
+                            top_n=top_n,
+                            weighting=weighting,
+                            membership=membership,
+                            prices=prices,
+                            max_position_weight=max_position_weight,
+                            max_sector_weight=max_sector_weight,
+                            preselected_symbols=preselected,
+                        )
 
         portfolios.append(target)
 
