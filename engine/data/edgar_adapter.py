@@ -226,7 +226,7 @@ class EdgarAdapter(FundamentalAdapter):
         rows: list[dict] = []
 
         for concept in wanted:
-            for tag in CONCEPT_TAGS[concept]:
+            for rank, tag in enumerate(CONCEPT_TAGS[concept]):
                 # TRAP 2: walk the WHOLE chain, not just the first hit. A company
                 # that switched tags in 2018 has its history split across two of them.
                 source = gaap.get(tag) or dei.get(tag)
@@ -253,9 +253,32 @@ class EdgarAdapter(FundamentalAdapter):
                             "value": float(entry["val"]),
                             "form": entry["form"],
                             "fiscal_year": entry.get("fy"),
+                            "_tag_rank": rank,   # position in CONCEPT_TAGS chain
                         })
 
-        return pd.DataFrame(rows, columns=FACT_COLUMNS)
+        frame = pd.DataFrame(
+            rows,
+            columns=FACT_COLUMNS + ["_tag_rank"],
+        )
+        if frame.empty:
+            return frame[FACT_COLUMNS]
+
+        # DETERMINISTIC TAG PRIORITY (matches sec_bulk_parse). When two tags report
+        # the SAME (symbol, concept, period_end) -- e.g. StockholdersEquity (parent)
+        # vs ...IncludingPortion...NoncontrollingInterest (total) -- keep the
+        # higher-priority tag (lower rank = earlier in CONCEPT_TAGS). Without this,
+        # which tag survives is incidental ordering, and EDGAR silently disagreed
+        # with the bulk source on ~100 S&P 500 names. Crucially this is PER-PERIOD:
+        # a lower-priority tag still fills periods the preferred tag never reported,
+        # so tag-switch history stays unbroken (TRAP 2 preserved).
+        frame = (
+            frame
+            .sort_values(["period_end", "_tag_rank", "filed"])
+            .drop_duplicates(subset=["symbol", "concept", "period_end"], keep="first")
+            .drop(columns=["_tag_rank"])
+            .reset_index(drop=True)
+        )
+        return frame[FACT_COLUMNS]
 
     # -- cache --------------------------------------------------------------
 
