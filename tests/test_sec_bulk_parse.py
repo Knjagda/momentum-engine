@@ -158,3 +158,73 @@ def test_filed_date_is_preserved_for_point_in_time(sample_zip):
     facts = parse_quarter(sample_zip, CIK_MAP)
     aapl_eq = facts[(facts["symbol"] == "AAPL") & (facts["concept"] == "equity")]
     assert pd.Timestamp(aapl_eq.iloc[0]["filed"]) == pd.Timestamp("2024-02-01")
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the WMT equity bug (real-data format)
+# ---------------------------------------------------------------------------
+#
+# The original tests used empty-string segments. REAL SEC data writes an empty
+# segment as the string 'nan' (pandas NaN round-tripped through TSV), and puts
+# equity-component breakdowns (RetainedEarnings, NoncontrollingInterest, ...) in the
+# segments field. The parser kept those breakdown rows, and equity came out wrong for
+# ~100 S&P 500 names. These tests reproduce the real format so the bug can't return.
+
+
+def _zip_real_format(tmp_path, num_rows, name="2024q4.zip"):
+    """Build a ZIP whose num.txt matches REAL SEC formatting (segments='nan' etc.)."""
+    sub_cols = "adsh\tcik\tform\tperiod\tfiled\tfy"
+    sub_rows = "0001-WMT\t104169\t10-Q\t20240131\t20240301\t2024"
+    num_cols = "adsh\ttag\tversion\tddate\tqtrs\tuom\tsegments\tcoreg\tvalue"
+    p = tmp_path / name
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("sub.txt", sub_cols + "\n" + sub_rows)
+        zf.writestr("num.txt", num_cols + "\n" + "\n".join(num_rows))
+    return p
+
+
+WMT_CIK = {104169: "WMT"}
+
+
+def test_nan_string_segment_is_treated_as_company_wide(tmp_path):
+    """A total row whose segments field is the string 'nan' must be KEPT."""
+    rows = [
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tnan\tnan\t83900",
+    ]
+    facts = parse_quarter(_zip_real_format(tmp_path, rows), WMT_CIK)
+    eq = facts[facts["concept"] == "equity"]
+    assert len(eq) == 1
+    assert eq.iloc[0]["value"] == 83900
+
+
+def test_equity_component_breakdown_rows_are_dropped(tmp_path):
+    """
+    The exact WMT bug: the real total (83900, segments 'nan') plus a pile of
+    EquityComponents=... breakdown rows. Only the total must survive.
+    """
+    rows = [
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tnan\tnan\t83900",
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tEquityComponents=RetainedEarnings;\tnan\t89800",
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tEquityComponents=NoncontrollingInterest;\tnan\t6500",
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tEquityComponents=CommonStock;\tnan\t800",
+    ]
+    facts = parse_quarter(_zip_real_format(tmp_path, rows), WMT_CIK)
+    eq = facts[facts["concept"] == "equity"]
+    assert len(eq) == 1, "breakdown rows leaked in"
+    assert eq.iloc[0]["value"] == 83900, "picked a breakdown component, not the total"
+
+
+def test_parent_only_equity_wins_over_including_minority(tmp_path):
+    """
+    When both equity tags appear as company-wide totals (segments 'nan'), the
+    parent-only StockholdersEquity (83900) must beat the higher
+    ...IncludingPortionAttributableToNoncontrolling... (90300).
+    """
+    rows = [
+        "0001-WMT\tStockholdersEquityIncludingPortionAttributableToNoncontrollingInterest\tus-gaap\t20240131\t0\tUSD\tnan\tnan\t90300",
+        "0001-WMT\tStockholdersEquity\tus-gaap\t20240131\t0\tUSD\tnan\tnan\t83900",
+    ]
+    facts = parse_quarter(_zip_real_format(tmp_path, rows), WMT_CIK)
+    eq = facts[facts["concept"] == "equity"]
+    assert len(eq) == 1
+    assert eq.iloc[0]["value"] == 83900, "should prefer parent-only equity"
