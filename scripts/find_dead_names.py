@@ -39,7 +39,7 @@ def main() -> None:
     today = pd.Timestamp.today().strftime("%Y-%m-%d")
     print()
     print("=" * 72)
-    print(f"  FINDING DEAD NAMES — {UNIVERSE} ({len(symbols)} symbols)")
+    print(f"  FINDING DEAD NAMES - {UNIVERSE} ({len(symbols)} symbols)")
     print("=" * 72)
     print("  Fetching all via yfinance; whatever it can't price is 'dead'.\n")
 
@@ -63,9 +63,9 @@ def main() -> None:
     print("=" * 72)
     print(f"  Wrote {len(dead)} dead names to {OUT}")
     if len(dead) <= 500:
-        print(f"  ✅ {len(dead)} ≤ 500 -- fits Tiingo's free monthly unique-symbol cap.")
+        print(f"  OK {len(dead)} <= 500 -- fits Tiingo's free monthly unique-symbol cap.")
     else:
-        print(f"  ⚠️  {len(dead)} > 500 -- exceeds Tiingo free cap; will need 2 months")
+        print(f"  !  {len(dead)} > 500 -- exceeds Tiingo free cap; will need 2 months")
         print("     or a one-month paid tier. We'll batch it.")
     print()
     print("  Next: python -m scripts.pull_tiingo_prices <KEY>  (now targets dead names)")

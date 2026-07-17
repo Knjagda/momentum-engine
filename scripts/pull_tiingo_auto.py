@@ -53,11 +53,11 @@ def main() -> None:
     print("  Safe to Ctrl-C and restart anytime -- progress is cached.\n")
 
     for rnd in range(1, MAX_ROUNDS + 1):
-        print(f"\n{'='*72}\n  ROUND {rnd} — {time.strftime('%Y-%m-%d %H:%M:%S')}\n{'='*72}")
+        print(f"\n{'='*72}\n  ROUND {rnd} - {time.strftime('%Y-%m-%d %H:%M:%S')}\n{'='*72}")
         remaining = _remaining_after_run(key)
 
         if remaining == 0:
-            print("\n  ✅ All target names cached. Auto-pull complete.")
+            print("\n  OK All target names cached. Auto-pull complete.")
             print("  Next: python -m scripts.backtest_honest <KEY>\n")
             return
         if remaining < 0:

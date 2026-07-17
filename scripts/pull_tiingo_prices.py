@@ -60,7 +60,7 @@ def main() -> None:
 
     print()
     print("=" * 72)
-    print(f"  TIINGO PULL — {len(symbols)} target symbols")
+    print(f"  TIINGO PULL - {len(symbols)} target symbols")
     print("=" * 72)
     print("  Cached tickers are skipped instantly. Re-run anytime to resume.")
     print("  Free tier ~50/hr and 500 unique/month, so pace across a few days.\n")
@@ -80,18 +80,18 @@ def main() -> None:
             adj, vol = adapter._fetch_one(ticker, START, END)
             if adj.empty:
                 missing += 1
-                status = "· no data (unknown to Tiingo)"
+                status = "- no data (unknown to Tiingo)"
             else:
                 fetched += 1
-                status = f"↓ {len(adj):,} bars, {adj.index[0].date()}→{adj.index[-1].date()}"
+                status = f"+ {len(adj):,} bars, {adj.index[0].date()}->{adj.index[-1].date()}"
         except TiingoError as e:
             failed += 1
-            print(f"  [{i}/{len(symbols)}] {sym:<8} ✗ {e}")
+            print(f"  [{i}/{len(symbols)}] {sym:<8} x {e}")
             print("\n  Stopping (likely hourly limit). Re-run the same command to resume.")
             break
         except Exception as e:  # noqa: BLE001
             failed += 1
-            status = f"✗ {type(e).__name__}: {e}"
+            status = f"x {type(e).__name__}: {e}"
 
         print(f"  [{i}/{len(symbols)}] {sym:<8} {status}")
 
@@ -106,7 +106,7 @@ def main() -> None:
     if remaining > 0:
         print("  Not finished -- re-run the same command to fetch the rest.")
     else:
-        print("  ✅ All target names cached. The honest backtest can now run.")
+        print("  OK All target names cached. The honest backtest can now run.")
     print()
 
 
