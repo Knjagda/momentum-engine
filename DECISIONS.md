@@ -5,6 +5,63 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2026-07 - THE HONEST BACKTEST: survivorship was worth 0.77%/yr, not the whole edge
+
+**Result.** Same momentum strategy (12-1, top 20, monthly, `sp900_pit`, 2010-06 on),
+run on two price sets:
+
+| price set | CAGR | vs SPY | max DD | Sharpe | Sortino |
+|---|---|---|---|---|---|
+| survivors only (yfinance, 1,200 names) | 23.87% | +8.74% | -36.9% | 0.84 | 1.61 |
+| survivorship-free (merged, 1,512 names) | 23.10% | +7.97% | -37.8% | 0.82 | 1.52 |
+
+**The survivorship illusion: +0.77% per year.** Every metric moved the correct
+direction once failures were included (return down, drawdown deeper, Sharpe and
+Sortino down) - internally consistent, which is itself evidence the run is sound.
+
+**How we got survivorship-free prices for free.** yfinance cannot price delisted
+names. Tiingo's free tier can, but caps unique symbols per month - so we used each
+vendor for its strength (Option C): yfinance for the 1,192 living names, Tiingo for
+the dead ones, merged with Tiingo authoritative on any overlap. 320 of 414 dead names
+obtained; 94 are absent from Tiingo under those tickers.
+
+**Why the illusion is smaller than expected - a mechanism, not luck.** Momentum
+SELLS losers. A company sliding toward failure loses momentum and is dropped at the
+next rebalance, usually well before it dies, so the strategy rarely holds a disaster
+through its collapse. This is the mirror image of the value finding: a value screen
+BUYS falling knives (it would have loaded up on SIVB and FRC precisely because they
+looked cheap before zero). Survivorship bias is therefore far more dangerous for
+value than for momentum - which retroactively strengthens the decision not to adopt
+the value gate.
+
+**What this does NOT establish.** We answered one question only. The remaining +7.97%
+is NOT a validated edge:
+- Universe: `sp900_pit` includes mid-caps, which inflates it. Our honest `sp500_pit`
+  baseline was **+4.37%**.
+- Period: 2010-06 onward excludes 2008-09, the era when index members failed en
+  masse. Across a full cycle survivorship would likely cost more than 0.77%, so treat
+  this as a LOWER BOUND measured in a favourable stretch.
+- No out-of-sample / walk-forward validation has been done.
+
+**Correct reading:** "survivorship accounted for less of our excess than feared,"
+NOT "we have an 8% edge."
+
+**Also fixed en route (all committed):** a recycled-ticker hazard - a ticker is a
+slot, not an identity (Dean Foods was DF; another company holds DF now). A scan of
+all 320 cached dead names found 1 genuine splice inside a traded window, ~5
+successor-entity cases, and 36 no-data cases; the rest decomposed into
+membership-metadata placeholders and Tiingo history truncation. `eligible_universe`
+gained two guards with regression tests: `history_gap` (the recent window must be
+contiguous, so a splice cannot be ranked across a dormancy) and `stale_prices` (the
+newest bar must be recent, so a dead name cannot be ranked on years-old prices).
+
+**Known data-quality issue, not yet addressed:** many membership records carry a
+placeholder `2012-01-13` join date rather than the real one. Harmless to correctness
+(the filters catch the consequences) but it means we sometimes believe a company was
+investable before it existed.
+
+---
+
 ## 2025 — Value gate not adopted; survivorship-free PRICES are now the binding constraint
 
 **Decision.** The value screen (positive earnings AND price-to-book ≤ median) is **not

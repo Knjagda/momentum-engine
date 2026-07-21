@@ -1,32 +1,40 @@
 """
-THE HONEST BACKTEST — how much of our "excess return" was survivorship illusion?
+THE HONEST BACKTEST -- how much of our "excess return" was survivorship illusion?
 
     python -m scripts.backtest_honest YOUR_TIINGO_KEY
 
-Every backtest so far ran on yfinance, which cannot price the ~410 delisted names in
-the universe -- so it silently tested only survivors, inflating returns. We now have
-Tiingo, which prices the dead names through their collapse. This runs the SAME
-momentum strategy on BOTH sources, side by side:
+Every backtest so far ran on yfinance alone, which cannot price the ~414 delisted
+names in our universe. It therefore tested only the survivors, and survivors are
+flattering: the companies that failed simply never appear, so their losses are never
+taken. This runs the SAME momentum strategy on two price sets:
 
-    yfinance  (survivorship-BIASED)  -- survivors only, the number we had
-    Tiingo    (survivorship-FREE)    -- includes the failures, the honest number
+  SURVIVORS ONLY  yfinance -- the ~1,192 names that still exist. The number we had.
+  SURVIVORSHIP-FREE  yfinance for the living, PLUS Tiingo for the dead names,
+                     merged. The failures are present and their collapses are taken.
 
-The DIFFERENCE between them is the survivorship illusion, quantified. If our +8.74%
-excess shrinks a lot, much of it was never real. If it mostly holds, momentum is
-sturdier than we feared. Either way it's the first honest number the engine produces.
+The difference between the two is the survivorship illusion, quantified.
 
-PREREQUISITE: run scripts.pull_tiingo_prices first until the universe is cached, so
-this reads from disk and is fast. Uncached tickers would make this crawl.
+WHY MERGE INSTEAD OF USING TIINGO FOR EVERYTHING. Tiingo's free tier caps unique
+symbols per month, so we spent its quota only on the names yfinance cannot supply.
+Each vendor does what it is best at; the engine does not care which one a column
+came from.
+
+HONESTY NOTE PRINTED WITH THE RESULT. Not all 414 dead names were obtainable -- some
+are absent from Tiingo under those tickers. The output states exactly how many dead
+names were included and how many are still missing, so the number carries its own
+caveat instead of relying on anyone's memory.
 """
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pandas as pd
 
 from engine.backtest import get_overlay, rebalance_dates, run_backtest
 from engine.data import get_adapter
+from engine.data.base import PriceData
 from engine.data.tiingo_adapter import TiingoAdapter
 from engine.markets.market import load_market
 from engine.metrics import cagr, max_drawdown, sharpe_ratio, sortino_ratio
@@ -36,7 +44,30 @@ from engine.universe.universe import load_membership
 UNIVERSE = "sp900_pit"
 TOP_N = 20
 START = "2010-06-01"
-PRICE_START = "2008-06-01"     # runway for 12-month momentum lookback
+PRICE_START = "2008-06-01"          # runway for the 12-month momentum lookback
+DEAD_FILE = Path("data/dead_names.txt")
+
+
+def _has_data(frame: pd.DataFrame) -> list[str]:
+    """Columns that actually contain prices. yfinance returns an all-NaN column for
+    every symbol it failed to download, so counting columns overstates coverage."""
+    return [c for c in frame.columns if frame[c].notna().any()]
+
+
+def _merge(a: PriceData, b: PriceData, market) -> PriceData:
+    """
+    Combine two price sets. Where both carry a symbol, `b` (Tiingo) WINS: those are
+    the dead names, for which yfinance has either nothing or -- worse -- a recycled
+    ticker's successor company. Dropping a's version outright avoids both.
+    """
+    overlap = a.close.columns.intersection(b.close.columns)
+    a_close = a.close.drop(columns=overlap)
+    a_vol = a.volume.drop(columns=overlap, errors="ignore")
+
+    close = a_close.join(b.close, how="outer")
+    volume = a_vol.join(b.volume, how="outer")
+    return PriceData(market=market, close=close.sort_index(),
+                     volume=volume.sort_index())
 
 
 def _run(market, membership, prices, benchmark, signal, dates, spy_cagr):
@@ -64,79 +95,102 @@ def main() -> None:
 
     market = load_market("us")
     membership = load_membership(market, UNIVERSE)
-    symbols = membership.symbols
+    symbols = sorted(set(membership.symbols))
     signal = get_signal("momentum", lookback_months=12, skip_months=1)
     today = pd.Timestamp.today().strftime("%Y-%m-%d")
     dates = rebalance_dates(market, START, today, "monthly")
 
+    dead = []
+    if DEAD_FILE.exists():
+        dead = sorted({ln.strip() for ln in DEAD_FILE.read_text().splitlines()
+                       if ln.strip()})
+
     print()
-    print("=" * 88)
-    print("  THE HONEST BACKTEST — survivorship-biased (yfinance) vs free (Tiingo)")
-    print("=" * 88)
+    print("=" * 90)
+    print("  THE HONEST BACKTEST -- survivors only vs survivorship-free")
+    print("=" * 90)
     print(f"  Universe: {UNIVERSE} ({len(symbols)} names)   Strategy: momentum 12-1, "
           f"top {TOP_N}, monthly")
-    print(f"  Period: {START} → {today}")
+    print(f"  Period: {START} -> {today}")
+    print(f"  Dead names identified: {len(dead)}")
     print()
 
-    # ---- SPY benchmark (same for both) -------------------------------------
-    yf = get_adapter(market)      # yfinance
+    # ---- benchmark ---------------------------------------------------------
+    yf = get_adapter(market)
     spy = yf.fetch(["SPY"], PRICE_START, today).close["SPY"].dropna()
     spy_vals = pd.Series([spy.asof(d) for d in dates], index=dates).dropna()
     spy_curve = (spy_vals / spy_vals.iloc[0]).iloc[1:]
     spy_cagr = cagr(spy_curve, 12)
-    spy_dd = max_drawdown(spy_curve)
-    print(f"  SPY: {spy_cagr:.2%} CAGR, {spy_dd:.1%} max DD\n")
+    print(f"  SPY: {spy_cagr:.2%} CAGR, {max_drawdown(spy_curve):.1%} max DD\n")
 
-    # ---- 1. yfinance (survivorship-biased) ---------------------------------
+    # ---- 1. survivors only (yfinance) --------------------------------------
     print("  Fetching yfinance prices (survivors only)...")
     yf_prices = yf.fetch(symbols, PRICE_START, today)
     yf_bench = yf.fetch_benchmark(PRICE_START, today)
-    print(f"  yfinance priced {len(yf_prices.symbols)} / {len(symbols)} names.")
+    n_yf = len(_has_data(yf_prices.close))
+    print(f"  yfinance actually priced {n_yf} / {len(symbols)} names "
+          f"(the rest are empty columns).\n")
 
-    # ---- 2. Tiingo (survivorship-free) -------------------------------------
-    print("  Fetching Tiingo prices (includes delisted -- from cache)...")
+    # ---- 2. the dead names from Tiingo (cache only) ------------------------
+    print("  Loading dead names from the Tiingo cache...")
     tg = TiingoAdapter(market, api_key=key)
-    tg_prices = tg.fetch(symbols, PRICE_START, today)
-    tg_bench = tg.fetch_benchmark(PRICE_START, today)
-    print(f"  Tiingo priced {len(tg_prices.symbols)} / {len(symbols)} names.")
-    print()
+    cached_dead = [
+        s for s in dead
+        if tg._cache_path(market.resolve_ticker(s)).exists()
+    ]
+    missing_dead = [s for s in dead if s not in cached_dead]
+    print(f"  {len(cached_dead)} of {len(dead)} dead names are cached "
+          f"({len(missing_dead)} unavailable).")
 
-    yf_res = _run(market, membership, yf_prices, yf_bench, signal, dates, spy_cagr)
-    tg_res = _run(market, membership, tg_prices, tg_bench, signal, dates, spy_cagr)
+    tg_prices = tg.fetch(cached_dead, PRICE_START, today)
+    print(f"  Tiingo supplied {len(tg_prices.symbols)} dead names.\n")
 
-    # ---- results side by side ----------------------------------------------
-    print("=" * 88)
-    print(f"  {'SOURCE':<28}{'CAGR':>9}{'vs SPY':>9}{'MAX DD':>9}"
-          f"{'SHARPE':>8}{'SORTINO':>9}{'FINAL $100k':>14}")
-    print("  " + "-" * 84)
-    for label, r in [("yfinance (survivor-biased)", yf_res),
-                     ("Tiingo (survivorship-free)", tg_res)]:
-        print(f"  {label:<28}{r['cagr']:>9.2%}{r['excess']:>+9.2%}{r['dd']:>9.1%}"
+    # ---- 3. merge ----------------------------------------------------------
+    merged = _merge(yf_prices, tg_prices, market)
+    n_merged = len(_has_data(merged.close))
+    n_tg = len(_has_data(tg_prices.close))
+    print(f"  Merged price set: {n_merged} names with real data "
+          f"({n_merged - n_tg} living + {n_tg} dead).\n")
+
+    biased = _run(market, membership, yf_prices, yf_bench, signal, dates, spy_cagr)
+    honest = _run(market, membership, merged, yf_bench, signal, dates, spy_cagr)
+
+    # ---- results -----------------------------------------------------------
+    print("=" * 90)
+    print(f"  {'PRICE SET':<30}{'CAGR':>9}{'vs SPY':>9}{'MAX DD':>9}"
+          f"{'SHARPE':>8}{'SORTINO':>9}{'FINAL $100k':>15}")
+    print("  " + "-" * 86)
+    for label, r in [("survivors only (yfinance)", biased),
+                     ("survivorship-free (merged)", honest)]:
+        print(f"  {label:<30}{r['cagr']:>9.2%}{r['excess']:>+9.2%}{r['dd']:>9.1%}"
               f"{r['sharpe']:>8.2f}{r['sortino']:>9.2f}"
-              f"{'$' + format(r['final']*100000, ',.0f'):>14}")
+              f"{'$' + format(r['final'] * 100000, ',.0f'):>15}")
 
-    # ---- the survivorship gap ----------------------------------------------
-    gap = yf_res["excess"] - tg_res["excess"]
+    gap = biased["excess"] - honest["excess"]
     print()
-    print("=" * 88)
+    print("=" * 90)
     print("  THE SURVIVORSHIP ILLUSION")
-    print("=" * 88)
-    print(f"  yfinance excess vs SPY : {yf_res['excess']:+.2%}")
-    print(f"  Tiingo   excess vs SPY : {tg_res['excess']:+.2%}")
-    print(f"  Difference (illusion)  : {gap:+.2%} per year")
+    print("=" * 90)
+    print(f"  Survivors-only excess vs SPY   : {biased['excess']:+.2%}")
+    print(f"  Survivorship-free excess vs SPY: {honest['excess']:+.2%}")
+    print(f"  Difference (the illusion)      : {gap:+.2%} per year")
     print()
-    if abs(gap) < 0.01:
-        print("  The gap is small -- momentum's edge mostly SURVIVES honest data.")
-    elif tg_res["excess"] > 0:
+    if abs(gap) < 0.005:
+        print("  The gap is small -- momentum's edge largely SURVIVES honest data.")
+    elif honest["excess"] > 0:
         print("  The edge SHRINKS but survives -- part illusion, part real.")
     else:
-        print("  The edge largely VANISHES on honest data -- it was mostly survivorship.")
+        print("  The edge largely VANISHES -- it was mostly survivorship.")
+
     print()
-    print("  Coverage note: Tiingo priced more names than yfinance; the extra ones are")
-    print("  the delisted companies whose failures yfinance silently skipped. That")
-    print("  difference in the universe is exactly what makes this number honest.")
-    print()
-    print("  ⚠️  Backtests are simulations, not predictions.")
+    print("=" * 90)
+    print("  WHAT THIS NUMBER STILL DOES NOT INCLUDE")
+    print("=" * 90)
+    print(f"  - {len(missing_dead)} dead names could not be priced by either source.")
+    print("    Their failures are still absent, so the honest column remains")
+    print("    slightly optimistic -- but by a bounded, stated amount.")
+    print("  - Fundamentals-based screens are not applied here; this is momentum only.")
+    print("  - Backtests are simulations, not predictions.")
     print()
 
 
