@@ -211,6 +211,8 @@ def eligible_universe(
     membership: Membership,
     as_of: date | datetime | str,
     min_history_days: int,
+    max_staleness_days: int = 45,
+    max_history_gap_days: int = 90,
 ) -> UniverseSnapshot:
     """
     Determine who can be ranked on `as_of`, using ONLY data from before it.
@@ -221,10 +223,16 @@ def eligible_universe(
         as_of:             the rebalance date
         min_history_days:  trading days of history the signal needs
                            (e.g. 12-month momentum needs ~252)
+        max_staleness_days:  newest bar must be at least this fresh, else the
+                           security is not really tradeable on this date
+        max_history_gap_days:  no gap this long inside the recent window, else the
+                           series splices two different companies (recycled ticker)
 
     Dropped for:
         no_data           -- security never appears in the price data
         insufficient_history -- listed too recently to score
+        stale_prices      -- has history, but it stopped long before this date
+        history_gap       -- history is not contiguous (recycled ticker splice)
         illiquid          -- fails the market's min average daily traded value
     """
     market = membership.market
@@ -254,6 +262,27 @@ def eligible_universe(
         if len(closes) < min_history_days:
             dropped[symbol] = "insufficient_history"
             continue
+
+        # STALE: enough bars, but they stopped long ago. A delisted name whose
+        # membership record over-runs its death would otherwise be ranked on prices
+        # years old. If the newest bar predates the decision date by more than
+        # max_staleness_days, the security is not tradeable here.
+        if max_staleness_days > 0 and (cutoff - closes.index[-1]).days > max_staleness_days:
+            dropped[symbol] = "stale_prices"
+            continue
+
+        # SPLICE: enough bars, but not CONTIGUOUS ones. A recycled ticker (company A
+        # trades, dies, symbol reissued to company B years later) accumulates plenty
+        # of total bars while hiding a dormant gap. Ranking across that gap invents a
+        # return -- a bankrupt $0.50 stock "becoming" a $30 stock. Require the recent
+        # window the signal actually reads to be free of long gaps.
+        if max_history_gap_days > 0:
+            recent = closes.tail(min_history_days)
+            if len(recent) >= 2:
+                worst_gap = recent.index.to_series().diff().dt.days.max()
+                if pd.notna(worst_gap) and worst_gap > max_history_gap_days:
+                    dropped[symbol] = "history_gap"
+                    continue
 
         # Liquidity: average daily traded VALUE (price x volume), in market currency.
         # Volume alone is meaningless across price levels and currencies.

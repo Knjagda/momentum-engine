@@ -1,25 +1,38 @@
 """
-Find RECYCLED TICKERS: one symbol, two different companies, spliced into one series.
+Find price data that can actually CONTAMINATE the backtest (v2, corrected logic).
 
     python -m scripts.detect_recycled_tickers
 
-THE PROBLEM. A ticker is a slot, not an identity. Dean Foods was DF until its 2020
-bankruptcy; some other company holds DF now. Tiingo faithfully returns whoever owns
-the symbol, so a naive fetch splices two companies' price histories together. Any
-calculation spanning the handoff invents a return -- a bankrupt $0.50 stock
-"becoming" a $30 stock is a 6,000% gain the backtest would happily book. That is
-worse than missing data: it is WRONG data wearing a real name.
+WHY V2. The first version asked "do the bars start after the symbol left the index?"
+That over-flagged badly: W.R. Grace left the S&P in 2000 but kept trading publicly
+until its 2021 acquisition, and Apollo Education traded for 15 months after leaving.
+Their data is perfectly good. Leaving an index is not dying.
 
-WHAT THIS DOES. Measures the scale before we build any treatment:
-  1. Splits each cached price series into ERAS -- contiguous runs of trading
-     separated by a long gap (a dead ticker sitting unused, then reissued).
-  2. Compares those eras against the symbol's point-in-time MEMBERSHIP intervals
-     (which encode when the symbol referred to an index member, and how often).
-  3. Flags anything suspicious: multiple eras, bars starting long after the symbol
-     left the index, or a tiny recent stub tacked onto a long-dead history.
+THE CORRECT QUESTION. Our engine only ever holds a symbol while it is a member (the
+rebalance loop calls eligible_universe(as_of=d) every period). So price data OUTSIDE
+a symbol's membership intervals is never selected, never priced, never booked -- it
+cannot contaminate anything, no matter whose company it belongs to. What matters is
+only this:
 
-Read-only. Changes nothing. Tells us how many tickers are affected and how badly,
-so the fix is sized to the real problem rather than my imagination.
+    Is there suspicious price data INSIDE a membership interval we actually trade?
+
+Three ways that can happen, and this script reports each:
+
+  RISK 1  SPLICE INSIDE A HELD WINDOW. A long dormant gap falls inside a membership
+          interval, so one column holds two companies during a period we trade.
+          A return computed across that handoff is fabricated.
+
+  RISK 2  LATE START INSIDE A HELD WINDOW. Price data begins well after the interval
+          starts, i.e. we are missing the company we should be holding and may be
+          looking at a successor.
+
+  RISK 3  NO DATA AT ALL for a traded interval -- harmless (the name is simply
+          skipped) but worth counting, since it is residual survivorship.
+
+Everything else is reported as OUT-OF-WINDOW ONLY: real recycling, but structurally
+harmless because the impostor bars sit outside every interval we trade.
+
+Read-only. Changes nothing.
 """
 
 from __future__ import annotations
@@ -34,14 +47,16 @@ from engine.universe.universe import load_membership
 
 UNIVERSE = "sp900_pit"
 
-# A pause this long between trades means the symbol went dormant -- the signature of
-# delisting followed by reissue. Real trading has holidays and halts, not half-year
-# silences.
+# The backtest window. Membership intervals ending before this are never traded, so
+# their price data -- right or wrong -- is irrelevant.
+BACKTEST_START = pd.Timestamp("2010-06-01")
+
+# A dormant pause this long means the symbol stopped trading and was later reissued.
 GAP_DAYS = 180
 
-# An era this small, sitting after a long-dead history, is almost certainly a new
-# company that just picked up the symbol.
-STUB_BARS = 60
+# Price data starting this long after a traded interval begins is suspicious: we are
+# missing the company we should have been holding.
+LATE_START_DAYS = 365
 
 
 def split_eras(idx: pd.DatetimeIndex) -> list[tuple[pd.Timestamp, pd.Timestamp, int]]:
@@ -58,14 +73,20 @@ def split_eras(idx: pd.DatetimeIndex) -> list[tuple[pd.Timestamp, pd.Timestamp, 
     return eras
 
 
+def _overlaps(a_start, a_end, b_start, b_end) -> bool:
+    return a_start <= b_end and b_start <= a_end
+
+
 def main() -> None:
     market = load_market("us")
     membership = load_membership(market, UNIVERSE)
+    today = pd.Timestamp.today()
 
-    # symbol -> list of (added, removed) membership intervals
-    intervals: dict[str, list[tuple[pd.Timestamp | None, pd.Timestamp | None]]] = {}
+    intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
     for m in membership.members:
-        intervals.setdefault(m.symbol.upper(), []).append((m.added, m.removed))
+        start = m.added if m.added is not None else pd.Timestamp("1900-01-01")
+        end = m.removed if m.removed is not None else today
+        intervals.setdefault(m.symbol.upper(), []).append((start, end))
 
     folder = Path(CACHE_DIR) / market.market_id.lower()
     files = sorted(folder.glob("*.csv"))
@@ -74,12 +95,14 @@ def main() -> None:
         return
 
     print()
-    print("=" * 86)
-    print("  RECYCLED TICKER SCAN -- cached Tiingo series vs membership intervals")
-    print("=" * 86)
-    print(f"  Scanned {len(files)} cached tickers. Gap threshold: {GAP_DAYS} days.\n")
+    print("=" * 88)
+    print("  CONTAMINATION SCAN (v2) -- only data inside TRADED windows can hurt us")
+    print("=" * 88)
+    print(f"  Cached tickers: {len(files)}   Backtest window: {BACKTEST_START.date()} ->")
+    print(f"  Gap threshold: {GAP_DAYS} days   Late-start threshold: {LATE_START_DAYS} days\n")
 
-    multi_era, late_start, clean = [], [], 0
+    risk_splice, risk_late, risk_nodata, harmless = [], [], [], []
+    clean = 0
 
     for f in files:
         sym = f.stem.upper()
@@ -88,75 +111,98 @@ def main() -> None:
         except Exception:
             continue
         close = df["close"].dropna() if "close" in df.columns else pd.Series(dtype=float)
-        if close.empty:
-            continue
+        eras = split_eras(pd.DatetimeIndex(close.index)) if not close.empty else []
 
-        eras = split_eras(pd.DatetimeIndex(close.index))
-        mem = intervals.get(sym, [])
-        # Latest date the symbol was an index member (None == still a member).
-        last_removed = None
-        if mem:
-            removals = [r for _a, r in mem if r is not None]
-            if removals and len(removals) == len(mem):
-                last_removed = max(removals)
+        # Only intervals we actually trade matter.
+        traded = [(s, e) for s, e in intervals.get(sym, []) if e >= BACKTEST_START]
+        if not traded:
+            continue  # never held in our window -- data cannot be used at all
 
-        if len(eras) > 1:
-            multi_era.append((sym, eras, mem))
-        elif last_removed is not None and eras and eras[0][0] > last_removed:
-            # Entire history begins AFTER the symbol left the index -- so these bars
-            # cannot be the company we care about.
-            late_start.append((sym, eras[0], last_removed))
-        else:
-            clean += 1
+        flagged = False
+        for s, e in traded:
+            s_eff = max(s, BACKTEST_START)
+            covering = [er for er in eras if _overlaps(er[0], er[1], s_eff, e)]
 
-    # ---- multi-era: the classic recycled ticker ---------------------------
-    print("-" * 86)
-    print(f"  MULTI-ERA SERIES (a dormant gap, then trading resumes): {len(multi_era)}")
-    print("-" * 86)
-    if multi_era:
-        print(f"  {'SYM':<7}{'ERA':<5}{'FROM':<12}{'TO':<12}{'BARS':>7}   VERDICT")
-        for sym, eras, mem in multi_era[:40]:
-            for n, (a, b, cnt) in enumerate(eras, 1):
-                verdict = ""
-                if n > 1:
-                    verdict = "likely NEW company" if cnt <= STUB_BARS else "second era -- check"
-                print(f"  {sym:<7}{n:<5}{str(a.date()):<12}{str(b.date()):<12}"
-                      f"{cnt:>7}   {verdict}")
-            spans = ", ".join(
-                f"{(a.date() if a is not None else '?')}..{(r.date() if r is not None else 'now')}"
-                for a, r in mem
-            ) or "(no membership record)"
-            print(f"  {'':7}membership: {spans}\n")
-        if len(multi_era) > 40:
-            print(f"  ... and {len(multi_era) - 40} more\n")
-    else:
-        print("  none\n")
+            if not covering:
+                risk_nodata.append((sym, s_eff, e))
+                flagged = True
+                continue
 
-    # ---- history entirely after the symbol left the index ------------------
-    print("-" * 86)
-    print(f"  HISTORY STARTS AFTER THE SYMBOL LEFT THE INDEX: {len(late_start)}")
-    print("-" * 86)
-    if late_start:
-        print(f"  {'SYM':<7}{'BARS FROM':<12}{'TO':<12}{'BARS':>7}   LEFT INDEX")
-        for sym, era, removed in late_start[:40]:
-            a, b, cnt = era
-            print(f"  {sym:<7}{str(a.date()):<12}{str(b.date()):<12}{cnt:>7}   "
-                  f"{removed.date()}")
-        if len(late_start) > 40:
-            print(f"  ... and {len(late_start) - 40} more")
-    else:
+            # RISK 1: a gap between two eras falls inside the traded window.
+            if len(covering) > 1:
+                risk_splice.append((sym, s_eff, e, covering))
+                flagged = True
+                continue
+
+            # RISK 2: the covering era starts well after the window opens.
+            era_start = covering[0][0]
+            if (era_start - s_eff).days > LATE_START_DAYS:
+                risk_late.append((sym, s_eff, e, era_start, covering[0][2]))
+                flagged = True
+
+        if not flagged:
+            outside = [
+                er for er in eras
+                if not any(_overlaps(er[0], er[1], max(s, BACKTEST_START), e)
+                           for s, e in traded)
+            ]
+            if outside:
+                harmless.append((sym, outside))
+            else:
+                clean += 1
+
+    def _hdr(title: str, n: int) -> None:
+        print("-" * 88)
+        print(f"  {title}: {n}")
+        print("-" * 88)
+
+    _hdr("RISK 1 - SPLICE INSIDE A TRADED WINDOW (fabricated returns possible)",
+         len(risk_splice))
+    for sym, s, e, covering in risk_splice[:30]:
+        spans = " | ".join(f"{a.date()}..{b.date()} ({n})" for a, b, n in covering)
+        print(f"  {sym:<7} traded {s.date()}..{e.date()}   eras: {spans}")
+    if not risk_splice:
+        print("  none")
+    print()
+
+    _hdr("RISK 2 - DATA STARTS LATE INSIDE A TRADED WINDOW", len(risk_late))
+    for sym, s, e, era_start, n in risk_late[:30]:
+        print(f"  {sym:<7} traded {s.date()}..{e.date()}   data starts "
+              f"{era_start.date()} ({n} bars) -- {(era_start - s).days} days late")
+    if not risk_late:
+        print("  none")
+    print()
+
+    _hdr("RISK 3 - NO DATA FOR A TRADED WINDOW (residual survivorship)",
+         len(risk_nodata))
+    for sym, s, e in risk_nodata[:30]:
+        print(f"  {sym:<7} traded {s.date()}..{e.date()}   no cached bars")
+    if len(risk_nodata) > 30:
+        print(f"  ... and {len(risk_nodata) - 30} more")
+    if not risk_nodata:
+        print("  none")
+    print()
+
+    _hdr("OUT-OF-WINDOW ONLY - real recycling, structurally harmless", len(harmless))
+    for sym, outside in harmless[:20]:
+        spans = " | ".join(f"{a.date()}..{b.date()} ({n})" for a, b, n in outside)
+        print(f"  {sym:<7} unused eras: {spans}")
+    if len(harmless) > 20:
+        print(f"  ... and {len(harmless) - 20} more")
+    if not harmless:
         print("  none")
 
     print()
-    print("=" * 86)
-    print(f"  Clean single-era series : {clean}")
-    print(f"  Multi-era (recycled?)   : {len(multi_era)}")
-    print(f"  Wrong-company history   : {len(late_start)}")
-    print("=" * 86)
-    print("  Multi-era and wrong-company series must NOT be used as-is: a return")
-    print("  computed across the handoff is fabricated. Next step is to slice each")
-    print("  series to the era matching its membership interval, and forbid any")
-    print("  calculation from crossing a gap.")
+    print("=" * 88)
+    print(f"  Clean                    : {clean}")
+    print(f"  Harmless recycling       : {len(harmless)}")
+    print(f"  RISK 1 splice-in-window  : {len(risk_splice)}")
+    print(f"  RISK 2 late-start        : {len(risk_late)}")
+    print(f"  RISK 3 no-data           : {len(risk_nodata)}")
+    print("=" * 88)
+    print("  Only RISK 1 and RISK 2 can produce WRONG numbers. RISK 3 is absence,")
+    print("  which we disclose. Everything else is already handled by the fact that")
+    print("  the engine only holds a symbol inside its membership intervals.")
     print()
 
 
