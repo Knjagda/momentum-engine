@@ -34,6 +34,22 @@ UNIVERSE = "sp900_pit"
 START = "2004-01-01"      # deep history so momentum lookbacks are covered
 END = "2026-12-31"
 DEAD_FILE = Path("data/dead_names.txt")
+# Tickers Tiingo has already told us it does not have. A miss costs an API call and
+# caches NOTHING, so without this record we re-ask about the same ~52 names every
+# round and burn the entire 50/hour quota on questions already answered.
+MISS_FILE = Path("data/tiingo_misses.txt")
+
+
+def _load_misses() -> set[str]:
+    if MISS_FILE.exists():
+        return {ln.strip() for ln in MISS_FILE.read_text().splitlines() if ln.strip()}
+    return set()
+
+
+def _record_miss(ticker: str) -> None:
+    MISS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with MISS_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(ticker.upper() + "\n")
 
 
 def _load_targets(market) -> list[str]:
@@ -65,6 +81,11 @@ def main() -> None:
     print("  Cached tickers are skipped instantly. Re-run anytime to resume.")
     print("  Free tier ~50/hr and 500 unique/month, so pace across a few days.\n")
 
+    known_misses = _load_misses()
+    if known_misses:
+        print(f"  Skipping {len(known_misses)} tickers already known absent "
+              f"(see {MISS_FILE}).\n")
+
     done, fetched, missing, failed = 0, 0, 0, 0
     t0 = time.time()
 
@@ -76,11 +97,19 @@ def main() -> None:
             done += 1
             continue
 
+        # A previously-recorded miss costs nothing to skip -- and skipping it is the
+        # whole point: re-asking burns an API call from a 50/hour budget.
+        if ticker.upper() in known_misses:
+            missing += 1
+            continue
+
         try:
             adj, vol = adapter._fetch_one(ticker, START, END)
             if adj.empty:
                 missing += 1
-                status = "- no data (unknown to Tiingo)"
+                _record_miss(ticker)
+                known_misses.add(ticker.upper())
+                status = "- no data (unknown to Tiingo) [recorded, won't retry]"
             else:
                 fetched += 1
                 status = f"+ {len(adj):,} bars, {adj.index[0].date()}->{adj.index[-1].date()}"
