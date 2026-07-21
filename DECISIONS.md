@@ -5,6 +5,51 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2026-07 - CRISIS-ERA RUN: the survivorship illusion nearly DOUBLES (0.77% -> 1.31%)
+
+**Why we ran it.** The first honest backtest started 2010-06 and measured a 0.77%/yr
+survivorship illusion. We flagged that as a LOWER BOUND, because the window excluded
+2008-09 - the era when index members actually failed en masse. Momentum needs no
+fundamentals, so the EDGAR 2009 wall does not block an earlier price-only run.
+
+**Result.** Same strategy, window extended to 2005-01-01 (prices from 2003):
+
+| window | survivors-only | survivorship-free | illusion | max DD (survivors -> honest) |
+|---|---|---|---|---|
+| 2010-06 on | +8.74% | +7.97% | **0.77%/yr** | -36.9% -> -37.8% (0.9pt) |
+| 2005-01 on | +7.37% | +6.06% | **1.31%/yr** | -61.0% -> -64.9% (3.9pt) |
+
+(SPY over the longer window: 10.93% CAGR, -52.9% max DD - versus 15.13% CAGR from
+2010, confirming how exceptional the post-crisis decade was.)
+
+**The illusion nearly doubles once the crisis is included.** The lower-bound reading
+we recorded was correct.
+
+**The more important finding is the DRAWDOWN, not the return.** Including failures
+worsened max drawdown by 0.9pt in the calm window but 3.9pt in the crisis window.
+Survivorship bias does not merely flatter returns - it HIDES RISK, and it hides risk
+most precisely when risk matters most. An honest -64.9% max drawdown is the number
+that would actually end a strategy in real life, because almost nobody holds through
+it. Any presentation of this engine must lead with that, not with CAGR. (This is also
+the momentum crash of the Daniel & Moskowitz literature showing up in our own data.)
+
+**1.31% is STILL understated, in a knowable direction.** The 94 dead names we could
+not price skew heavily toward 2008 casualties: LEH (Lehman), FNM/FRE (Fannie/Freddie),
+CFC (Countrywide), ABK (Ambac), BS (Bethlehem Steel), MEE (Massey), ANR (Alpha
+Natural). The crisis-era test is most handicapped exactly where it matters most, so
+the true full-cycle illusion is somewhere ABOVE 1.31%.
+
+**Honest standing estimate of the strategy.** Over 2005-2026 with survivorship-free
+prices: ~+6% vs SPY, with a -64.9% max drawdown, on `sp900_pit` (mid-caps, which
+inflate it) and with no out-of-sample validation. That is the most truthful summary
+the engine can currently produce.
+
+**Minor data note:** yfinance returned AES as a failed download in this run but not
+the previous one (1,199 vs 1,200 priced). A vendor flake, not a code issue, but a
+reminder that yfinance is nondeterministic at the edges.
+
+---
+
 ## 2026-07 - THE HONEST BACKTEST: survivorship was worth 0.77%/yr, not the whole edge
 
 **Result.** Same momentum strategy (12-1, top 20, monthly, `sp900_pit`, 2010-06 on),

@@ -43,8 +43,8 @@ from engine.universe.universe import load_membership
 
 UNIVERSE = "sp900_pit"
 TOP_N = 20
-START = "2010-06-01"
-PRICE_START = "2008-06-01"          # runway for the 12-month momentum lookback
+DEFAULT_START = "2010-06-01"
+LOOKBACK_RUNWAY_YEARS = 2      # runway before START for the 12-month momentum lookback
 DEAD_FILE = Path("data/dead_names.txt")
 
 
@@ -89,16 +89,20 @@ def _run(market, membership, prices, benchmark, signal, dates, spy_cagr):
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("\n  python -m scripts.backtest_honest YOUR_TIINGO_KEY\n")
+        print("\n  python -m scripts.backtest_honest YOUR_TIINGO_KEY [START_DATE]")
+        print("     e.g. ... 2005-01-01   to include the 2008-09 crisis\n")
         return
     key = sys.argv[1]
+    start = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_START
+    price_start = (pd.Timestamp(start)
+                   - pd.DateOffset(years=LOOKBACK_RUNWAY_YEARS)).strftime("%Y-%m-%d")
 
     market = load_market("us")
     membership = load_membership(market, UNIVERSE)
     symbols = sorted(set(membership.symbols))
     signal = get_signal("momentum", lookback_months=12, skip_months=1)
     today = pd.Timestamp.today().strftime("%Y-%m-%d")
-    dates = rebalance_dates(market, START, today, "monthly")
+    dates = rebalance_dates(market, start, today, "monthly")
 
     dead = []
     if DEAD_FILE.exists():
@@ -111,13 +115,13 @@ def main() -> None:
     print("=" * 90)
     print(f"  Universe: {UNIVERSE} ({len(symbols)} names)   Strategy: momentum 12-1, "
           f"top {TOP_N}, monthly")
-    print(f"  Period: {START} -> {today}")
+    print(f"  Period: {start} -> {today}   (prices from {price_start})")
     print(f"  Dead names identified: {len(dead)}")
     print()
 
     # ---- benchmark ---------------------------------------------------------
     yf = get_adapter(market)
-    spy = yf.fetch(["SPY"], PRICE_START, today).close["SPY"].dropna()
+    spy = yf.fetch(["SPY"], price_start, today).close["SPY"].dropna()
     spy_vals = pd.Series([spy.asof(d) for d in dates], index=dates).dropna()
     spy_curve = (spy_vals / spy_vals.iloc[0]).iloc[1:]
     spy_cagr = cagr(spy_curve, 12)
@@ -125,8 +129,8 @@ def main() -> None:
 
     # ---- 1. survivors only (yfinance) --------------------------------------
     print("  Fetching yfinance prices (survivors only)...")
-    yf_prices = yf.fetch(symbols, PRICE_START, today)
-    yf_bench = yf.fetch_benchmark(PRICE_START, today)
+    yf_prices = yf.fetch(symbols, price_start, today)
+    yf_bench = yf.fetch_benchmark(price_start, today)
     n_yf = len(_has_data(yf_prices.close))
     print(f"  yfinance actually priced {n_yf} / {len(symbols)} names "
           f"(the rest are empty columns).\n")
@@ -142,7 +146,7 @@ def main() -> None:
     print(f"  {len(cached_dead)} of {len(dead)} dead names are cached "
           f"({len(missing_dead)} unavailable).")
 
-    tg_prices = tg.fetch(cached_dead, PRICE_START, today)
+    tg_prices = tg.fetch(cached_dead, price_start, today)
     print(f"  Tiingo supplied {len(tg_prices.symbols)} dead names.\n")
 
     # ---- 3. merge ----------------------------------------------------------
