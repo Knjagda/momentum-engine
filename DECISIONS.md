@@ -5,6 +5,52 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2026-07 - REVERSAL: adopt the trend filter as default (honest data changes the call)
+
+**This reverses an earlier decision.** In prior sessions we evaluated risk overlays
+on survivors-only data, found them to be "insurance with a premium" (cut drawdown but
+cost return), and declined to adopt any. On survivorship-free data that judgement no
+longer holds.
+
+**Evidence** (survivorship-free, `sp900_pit`, momentum 12-1 top 20, 2005-01 on):
+
+| overlay | CAGR | vs SPY | max DD | Sharpe | Sortino |
+|---|---|---|---|---|---|
+| always_on | 21.09% | +6.06% | **-64.9%** | 0.71 | 1.24 |
+| trend_filter | 19.71% | +4.68% | **-34.0%** | 0.82 | 1.49 |
+| absolute_momentum | 20.07% | +5.05% | -46.6% | 0.75 | 1.34 |
+
+**The trend filter trade:** costs 1.38pt of CAGR, buys back 30.9pt of drawdown
+(-64.9% -> -34.0%), AND improves both risk-adjusted metrics (Sharpe 0.71->0.82,
+Sortino 1.24->1.49).
+
+**Why the verdict flips - two reasons, same direction.**
+1. On survivors-only data the overlay mostly moved risk and return together (pure
+   insurance). On honest data it improves return-PER-UNIT-RISK - a strictly better
+   way to hold the strategy, not a reluctant hedge.
+2. Threshold effect. -64.9% turns $100k into $35k; almost nobody holds through that,
+   so the ungated 21% CAGR is partly fictional - it assumes a behaviour (not
+   capitulating at the bottom) that does not happen in practice. -34.0% ($100k ->
+   $66k) is survivable. An overlay that keeps the strategy actually holdable is worth
+   more than its CAGR cost implies.
+
+**Decision.** Adopt `trend_filter` (200-day MA on the benchmark) as the DEFAULT
+overlay. `always_on` remains available for research/attribution; `absolute_momentum`
+is a middle option but is dominated by trend_filter on every risk metric here.
+
+**Why the earlier call was not wrong - it was under-informed.** The prior "don't
+adopt" was correct on survivors-only evidence. The lesson is not "we erred" but
+"survivorship bias distorts RISK decisions, not just return estimates" - it made a
+worthwhile overlay look not worth it. This is a second, independent cost of
+survivorship bias beyond the 1.31% return illusion.
+
+**Standing summary, updated.** Momentum 12-1, top 20, monthly, trend-filtered, on
+survivorship-free `sp900_pit`, 2005-2026: ~+4.7% vs SPY, -34% max DD, Sharpe 0.82.
+Still mid-cap-inflated and not out-of-sample validated - but now with a drawdown a
+real investor could plausibly survive.
+
+---
+
 ## 2026-07 - CRISIS-ERA RUN: the survivorship illusion nearly DOUBLES (0.77% -> 1.31%)
 
 **Why we ran it.** The first honest backtest started 2010-06 and measured a 0.77%/yr

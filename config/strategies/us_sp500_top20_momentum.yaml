@@ -34,10 +34,12 @@ rebalance:
   day: first_trading_day
 
 overlay:
-  # HONEST TRADEOFF: the trend filter cut the 2008 drawdown from -61% to survivable,
-  # but COST 4-7%/yr in the 2013+ bull market (it whipsaws). It is left ON by default
-  # because a -61% drawdown is unholdable for real people -- but it is insurance with
-  # a real premium, not free protection. Set enabled: false to see the raw strategy.
+  # ADOPTED as default (see DECISIONS.md). On SURVIVORSHIP-FREE data, 2005-2026, the
+  # trend filter costs ~1.4pt of CAGR but cuts max drawdown from -64.9% to -34.0% AND
+  # raises Sharpe (0.71->0.82) and Sortino (1.24->1.49). It is not merely insurance:
+  # it improves return-per-unit-risk, and -34% is a drawdown a real investor can
+  # survive whereas -65% is not (a strategy nobody holds to the bottom does not earn
+  # its paper CAGR). Set enabled: false to see the raw, unprotected strategy.
   trend_filter:
     enabled: true
     benchmark_ma_days: 200      # invest only while benchmark > its 200d MA
