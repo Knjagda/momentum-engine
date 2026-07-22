@@ -5,6 +5,50 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2026-07 - OUT-OF-SAMPLE VALIDATION: the edge holds (the one test that could only deflate it)
+
+**Why this test is different.** Every prior result was measured on the same history we
+built against. This asks whether the FIXED strategy (12-1, top 20, trend-filtered --
+nothing tuned here) is CONSISTENT across sub-periods it was not selected for. Unlike
+inflation-prone backtests, an OOS consistency test can only expose weakness, not
+manufacture strength. It held.
+
+**Split-sample (survivorship-free, sp900_pit, 2005-2026):**
+
+| half | period | CAGR | SPY | excess | Sharpe | max DD |
+|---|---|---|---|---|---|---|
+| first | 2005-03..2015-11 | 14.5% | 5.3% | +9.23% | 1.00 | -16.9% |
+| second | 2015-11..2026-07 | 17.4% | 12.5% | +4.92% | 0.68 | -34.5% |
+
+Edge present in BOTH halves -- not a regime artifact. It DECAYS second-half
+(+9.2%->+4.9%), consistent with a real, publicly-known factor getting more crowded
+over time rather than a fitted fluke.
+
+**Per-year:** beat SPY in 12/22 years (55% hit rate). Cumulative annual excess +193pt;
+dropping the single best year still leaves +118pt -- the edge is DISTRIBUTED across
+years, not one lucky bounce (this was the main overfitting worry, and it failed to
+materialise).
+
+**Rolling 3-year:** 222 windows, beats SPY in 58%, median +1.8%/yr, WORST -12.2%/yr.
+
+**Honest tempering -- this is not a green light:**
+- 55% yearly hit rate is only modestly better than a coin flip; the edge is in
+  magnitude (wins bigger than losses), not frequency. Multi-year lag stretches (2014,
+  2019, 2023, 2025) are normal and a real investor will feel them.
+- Worst 3-year window trails SPY by ~12%/yr -- a badly-timed client could underperform
+  for years, exactly the person most likely to quit at the bottom. Must be disclosed.
+- Second-half decay means the FORWARD edge is better estimated by the recent ~+5% than
+  the full-sample ~+9%.
+
+**Standing conclusion.** After inclusion-bias correction, point-in-time membership,
+survivorship-free prices, honest-drawdown measurement, AND out-of-sample consistency,
+a real distributed edge survives: **~+5% vs SPY forward-looking, -34% max drawdown,
+with multi-year underperformance stretches that must be tolerated.** Modest, bounded,
+and defensible -- which is more than most retail quant projects can claim. This is NOT
+"just buy SPMO"; it is a genuine, honestly-caveated edge.
+
+---
+
 ## 2026-07 - REVERSAL: adopt the trend filter as default (honest data changes the call)
 
 **This reverses an earlier decision.** In prior sessions we evaluated risk overlays
