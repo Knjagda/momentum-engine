@@ -5,7 +5,7 @@
 
 strategy_id: us_sp500_top20_momentum
 name: "S&P 500 Top-20 Momentum"
-description: "Honest default: rank the POINT-IN-TIME S&P 500 by 12-1 momentum, hold top 20 equal-weight, rebalance monthly. This is the config our own signal-grid found most robust across both eras (+3.2%/+2.7% vs SPY)."
+description: "Honest default: rank the POINT-IN-TIME S&P 500 by 12-2 momentum, hold top 20 equal-weight, rebalance monthly. This is the config our own signal-grid found most robust across both eras (+3.2%/+2.7% vs SPY)."
 
 market: us                      # -> config/markets/us.yaml
 universe: sp500_pit             # POINT-IN-TIME. Using the plain `sp500` (today's
@@ -13,7 +13,7 @@ universe: sp500_pit             # POINT-IN-TIME. Using the plain `sp500` (today'
                                 # inclusion bias -- see scripts/validate.py.
 
 signal:
-  name: momentum                # raw 12-1 total return.
+  name: momentum                # raw 12-2 total return.
                                 # Our signal grid (scripts/experiment_signal.py)
                                 # showed raw momentum beats volar in BOTH eras;
                                 # dividing by volatility was our weakest choice.
