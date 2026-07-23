@@ -3,9 +3,13 @@
 # This file is what the no-code strategy builder will eventually emit.
 # =============================================================
 
+# NOTE: strategy_id is deliberately UNCHANGED even though the strategy now holds 25.
+# Saved portfolio history in data/portfolios/ is keyed on this id -- renaming it would
+# orphan that history and the next report would show no trade list. The filename and
+# id are cosmetic; the parameters below are what run.
 strategy_id: us_sp500_top20_momentum
-name: "S&P 500 Top-20 Momentum"
-description: "Honest default: rank the POINT-IN-TIME S&P 500 by 12-1 momentum, hold top 20 equal-weight, rebalance monthly. This is the config our own signal-grid found most robust across both eras (+3.2%/+2.7% vs SPY)."
+name: "S&P 500 Top-25 Momentum"
+description: "Rank the POINT-IN-TIME S&P 500 by 12-1 momentum, hold the top 25 equal-weight with a 25% sector cap, rebalance monthly, invested only while the benchmark is above its 200-day average. On survivorship-free data 2005-2026: +7.10%/yr vs SPY, -31.4% max drawdown, Sharpe 0.89."
 
 market: us                      # -> config/markets/us.yaml
 universe: sp500_pit             # POINT-IN-TIME. Using the plain `sp500` (today's
@@ -14,23 +18,51 @@ universe: sp500_pit             # POINT-IN-TIME. Using the plain `sp500` (today'
 
 signal:
   name: momentum                # raw 12-1 total return.
-                                # Our signal grid (scripts/experiment_signal.py)
-                                # showed raw momentum beats volar in BOTH eras;
-                                # dividing by volatility was our weakest choice.
-                                # Volar remains available -- just not the default.
+                                # CAVEAT: the signal grid that ranked raw momentum
+                                # above volar ran on SURVIVORSHIP-BIASED data, and was
+                                # never logged in DECISIONS.md. Volar penalises
+                                # volatile names, i.e. it is a RISK tool -- and the
+                                # trend filter (also a risk tool) was rejected on
+                                # biased data and REVERSED once tested honestly,
+                                # because survivorship bias understates risk. That
+                                # comparison is therefore due a re-run before this
+                                # default can be called settled.
   params:
     lookback_months: 12
     skip_months: 1              # skip most recent month (short-term reversal)
 
 selection:
+  # 25, not 20. A 25% sector cap needs at least 4 sectors to be arithmetically
+  # possible, and at 20 names the portfolio spans as few as 4 -- so the cap binds
+  # hard and forces buying the best of a WEAK sector, which measurably DEEPENED
+  # drawdown (-34.5% -> -35.2%). At 25 names the cap is satisfiable without reaching.
   top_n: 25
 
 weighting:
-  method: equal                 # equal | inverse_vol | capped
+  # Registered schemes are `equal` and `inverse_vol` ONLY. (An earlier comment here
+  # listed `capped`, which is not registered and raises KeyError -- position and
+  # sector caps are separate constraints applied below, not weighting schemes.)
+  #
+  # Equal weight was tested against inverse-volatility on survivorship-free data:
+  # inverse-vol cost 1.85pt of return, returned only 0.3pt of drawdown, and lost on
+  # BOTH Sharpe and Sortino. Momentum is inherently a high-volatility strategy, so
+  # shrinking the wildest positions underweights the strongest signal.
+  method: equal
   max_position_weight: 0.10
+
+  # 25% is the recognised global threshold for "concentrated": the SEC treats >25%
+  # of assets in one industry as concentration, and SEBI applies a 25% single-sector
+  # limit. Costs 0.41pt of excess return, buys 3.1pt of drawdown and the highest
+  # Sharpe measured (0.89). Note this is STRICTER than the large momentum funds --
+  # SPMO applies no sector cap at all, MTUM has run ~39% in one sector -- which is a
+  # deliberate choice for a family-and-friends product, not an industry norm.
   max_sector_weight: 0.25
 
 rebalance:
+  # Monthly confirmed against quarterly on survivorship-free data: quarterly cost
+  # 5.78pt of excess return and deepened drawdown by 15.6pt. Momentum punishes delay
+  # in proportion to the delay -- a no-trade buffer (delaying exits only) cost
+  # 0.6-2.1pt; quarterly (delaying both sides) cost 5.78pt. Act promptly or not at all.
   frequency: monthly            # weekly | monthly | quarterly
   day: first_trading_day
 
