@@ -5,6 +5,44 @@ any collaborator) can see the reasoning, not just the outcome. Newest first.
 
 ---
 
+## 2026-07 - PARAMETER SENSITIVITY: broad plateau, not a spike (research phase closed)
+
+**The last overfitting check.** Swept lookback [6,9,11,12,13,15] x skip [0,1,2] x
+topN [10,15,20,25,30] = 90 cells, on survivorship-free data, trend-filtered,
+2005-2026. Question: is our 12-1-top20 choice special (overfit) or typical among its
+neighbours (robust)?
+
+**Result: ALL 90 cells beat SPY (100%).** Excess +2.29% to +17.81%, median +8.66%,
+Sharpe 0.62-0.93. There is no parameter neighbourhood where momentum fails -- the edge
+is a property of the strategy family, not a lucky pick.
+
+**Our (12,1,20) sits at the 36th percentile -- BELOW median.** We did not cherry-pick
+a hot cell; if anything our choice is conservative (64% of neighbours scored higher).
+This rules out implicit tuning to a peak.
+
+**Slices are smooth (plateau signature):**
+- by lookback (skip1,top20): 9.5 / 10.5 / 9.5 / 7.5 / 7.8 / 7.3% -- no cliffs
+- by topN (lb12,skip1): 10.4 / 8.8 / 7.5 / 7.7 / 6.4% -- smooth
+
+**Structural patterns worth noting (NOT acting on):** shorter lookbacks and smaller
+topN score higher. Concentration lifts return (top10 > top30). BUT:
+- The sweep measures RETURN, not risk-adjusted outcome; concentration and short
+  lookbacks carry more volatility, turnover, and cost that the excess column
+  understates.
+- Switching to the best cell NOW would be in-sample optimization through the back
+  door -- the exact overfitting this test exists to detect. It would require a fresh
+  out-of-sample test to trust. We do NOT do this.
+
+**Conclusion.** 12-1-top20 stays. Being unremarkable among 90 winners is the
+validation. Momentum has now survived: inclusion-bias correction, point-in-time
+membership, survivorship-free prices, honest-drawdown measurement, out-of-sample
+consistency, AND parameter robustness. The RESEARCH phase is substantially complete;
+the standing estimate (~+5% vs SPY forward, -34% DD, multi-year lag stretches) is as
+honest as this engine can currently make it. Next frontier is the PRODUCT layer
+(live signals, accounts), not more strategy research.
+
+---
+
 ## 2026-07 - OUT-OF-SAMPLE VALIDATION: the edge holds (the one test that could only deflate it)
 
 **Why this test is different.** Every prior result was measured on the same history we

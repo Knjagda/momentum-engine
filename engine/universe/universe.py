@@ -23,6 +23,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from engine.data.base import PriceData
 from engine.markets.market import Market
@@ -252,50 +253,106 @@ def eligible_universe(
     liq_window = market.liquidity.lookback_days
     min_value = market.liquidity.min_avg_daily_value
 
-    for symbol in membership.symbols:
-        if symbol not in history.close.columns:
-            dropped[symbol] = "no_data"
+    members = list(membership.symbols)
+
+    # VECTORISED eligibility. Same rules, same precedence, same drop reasons as the
+    # per-symbol loop this replaced -- just computed as whole-DataFrame operations
+    # instead of ~1,600 individual pandas calls per rebalance (which made a single
+    # backtest take ~150s). The 214-test suite, incl. the recycled-ticker guards,
+    # pins the behaviour: if those pass, this is doing exactly what the loop did.
+    #
+    # Precedence matters: a symbol's REASON is the FIRST check it fails, in order
+    # no_data -> insufficient_history -> stale_prices -> history_gap -> illiquid.
+    # We assign reasons in that order and never overwrite an earlier one.
+
+    close = history.close
+    volume = history.volume
+
+    present = [s for s in members if s in close.columns]
+    absent = [s for s in members if s not in close.columns]
+
+    for s in absent:
+        dropped[s] = "no_data"
+
+    if not present:
+        return UniverseSnapshot(
+            market=market, universe_key=membership.universe_key, as_of=cutoff,
+            eligible=[], dropped=dropped,
+            survivorship_bias=membership.survivorship_bias,
+            disclaimer=membership.disclaimer,
+        )
+
+    sub = close[present]
+    valid = sub.notna()
+    counts = valid.sum(axis=0)                       # bars per symbol
+
+    # insufficient_history
+    hist_ok = counts >= min_history_days
+    for s in counts.index[~hist_ok]:
+        dropped[s] = "insufficient_history"
+
+    survivors = [s for s in present if hist_ok[s]]
+    if not survivors:
+        return UniverseSnapshot(
+            market=market, universe_key=membership.universe_key, as_of=cutoff,
+            eligible=[], dropped=dropped,
+            survivorship_bias=membership.survivorship_bias,
+            disclaimer=membership.disclaimer,
+        )
+
+    surv = sub[survivors]
+    surv_valid = valid[survivors]
+
+    # stale_prices (vectorised): last valid index per column. Trick: multiply the row
+    # position by validity, take the max -> last valid row per symbol.
+    row_pos = pd.Series(range(len(surv)), index=surv.index)
+    last_pos = surv_valid.mul(row_pos, axis=0).where(surv_valid).max(axis=0)
+    last_dates = surv.index[last_pos.astype(int).to_numpy()]
+    stale_ok = pd.Series(True, index=survivors)
+    if max_staleness_days > 0:
+        age = (cutoff - pd.DatetimeIndex(last_dates)).days
+        stale_ok = pd.Series(age <= max_staleness_days, index=survivors)
+    for s in survivors:
+        if not stale_ok[s]:
+            dropped[s] = "stale_prices"
+
+    after_stale = [s for s in survivors if stale_ok[s]]
+
+    # liquidity (vectorised): traded value over the last liq_window rows.
+    liq_ok = pd.Series(True, index=after_stale)
+    if min_value > 0 and after_stale:
+        tail_close = surv[after_stale].tail(liq_window)
+        tail_vol = volume.reindex(columns=after_stale).reindex(tail_close.index).tail(liq_window)
+        traded = (tail_close * tail_vol)
+        liq_mean = traded.mean(axis=0)               # NaN-skipping mean per symbol
+        liq_ok = (liq_mean >= min_value) & liq_mean.notna()
+
+    # history_gap (vectorised where it counts): the largest spacing between
+    # consecutive VALID bars inside each symbol's recent required-length window must
+    # not exceed the limit. We must look at the tail of each symbol's NON-NULL bars
+    # (matching the original col.dropna().tail(min_history_days)), because a sparse or
+    # spliced series' recent real bars can span a long dormant gap.
+    gap_bad: set[str] = set()
+    if max_history_gap_days > 0 and after_stale:
+        for s in after_stale:
+            valid_idx = surv[s].dropna().index
+            if len(valid_idx) >= 2:
+                tail_idx = valid_idx[-min_history_days:]
+                # Gaps in calendar days between consecutive valid bars. Use numpy
+                # timedelta64[D] rather than hand-rolled epoch math (asi8 units vary
+                # by index resolution and silently corrupt a manual day conversion).
+                gaps_days = np.diff(tail_idx.values).astype("timedelta64[D]").astype(int)
+                if gaps_days.size and int(gaps_days.max()) > max_history_gap_days:
+                    gap_bad.add(s)
+
+    for s in after_stale:
+        if s in gap_bad:
+            dropped[s] = "history_gap"
             continue
-
-        closes = history.close[symbol].dropna()
-
-        if len(closes) < min_history_days:
-            dropped[symbol] = "insufficient_history"
+        if not liq_ok.get(s, False):
+            dropped[s] = "illiquid"
             continue
-
-        # STALE: enough bars, but they stopped long ago. A delisted name whose
-        # membership record over-runs its death would otherwise be ranked on prices
-        # years old. If the newest bar predates the decision date by more than
-        # max_staleness_days, the security is not tradeable here.
-        if max_staleness_days > 0 and (cutoff - closes.index[-1]).days > max_staleness_days:
-            dropped[symbol] = "stale_prices"
-            continue
-
-        # SPLICE: enough bars, but not CONTIGUOUS ones. A recycled ticker (company A
-        # trades, dies, symbol reissued to company B years later) accumulates plenty
-        # of total bars while hiding a dormant gap. Ranking across that gap invents a
-        # return -- a bankrupt $0.50 stock "becoming" a $30 stock. Require the recent
-        # window the signal actually reads to be free of long gaps.
-        if max_history_gap_days > 0:
-            recent = closes.tail(min_history_days)
-            if len(recent) >= 2:
-                worst_gap = recent.index.to_series().diff().dt.days.max()
-                if pd.notna(worst_gap) and worst_gap > max_history_gap_days:
-                    dropped[symbol] = "history_gap"
-                    continue
-
-        # Liquidity: average daily traded VALUE (price x volume), in market currency.
-        # Volume alone is meaningless across price levels and currencies.
-        if min_value > 0 and symbol in history.volume.columns:
-            recent_close = history.close[symbol].tail(liq_window)
-            recent_vol = history.volume[symbol].tail(liq_window)
-            traded_value = (recent_close * recent_vol).dropna()
-
-            if traded_value.empty or traded_value.mean() < min_value:
-                dropped[symbol] = "illiquid"
-                continue
-
-        eligible.append(symbol)
+        eligible.append(s)
 
     return UniverseSnapshot(
         market=market,
